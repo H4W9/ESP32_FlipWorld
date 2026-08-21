@@ -166,7 +166,7 @@ namespace FlipWorld
         }
 
         // draw box around the username
-        game->draw->display->fillRect(pos.x - game->pos.x - (strlen(username) * 2), pos.y - game->pos.y - 10, strlen(username) * 5 + 4, 10, TFT_WHITE);
+        game->draw->display->fillRect(pos.x - game->pos.x - (strlen(username) * 2), pos.y - game->pos.y - 10, strlen(username) * 5 + 4, 10, TFT_BLACK);
 
         // draw username over player's head
         game->draw->text(Vector(pos.x - game->pos.x - (strlen(username) * 2), pos.y - game->pos.y - 10), username, TFT_RED);
@@ -510,7 +510,7 @@ namespace FlipWorld
     static void draw_user_stats(Entity *self, Vector pos, Game *game)
     {
         // first draw a white rectangle to make the text more readable
-        game->draw->display->fillRect(pos.x - 2, pos.y - 5, 48, 32, TFT_WHITE);
+        game->draw->display->fillRect(pos.x - 2, pos.y - 5, 48, 32, TFT_BLACK);
 
         char health[32];
         char xp[32];

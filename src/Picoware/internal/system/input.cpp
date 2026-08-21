@@ -82,22 +82,21 @@ namespace Picoware
             px = sx;
             py = sy;
             pressed = true;
-            // Fire a button code only on a fresh press edge (debounced).
-            uint32_t now = millis();
-            if (!wasDown && (now - lastMs) >= DEBOUNCE_MS)
-            {
-                lastMs = now;
-                if (sy < (uint16_t)(h / 5))
-                    lastButton = BUTTON_UP;
-                else if (sy > (uint16_t)(h * 4 / 5))
-                    lastButton = BUTTON_DOWN;
-                else if (sx < (uint16_t)(w / 4))
-                    lastButton = BUTTON_LEFT;
-                else if (sx > (uint16_t)(w * 3 / 4))
-                    lastButton = BUTTON_RIGHT;
-                else
-                    lastButton = BUTTON_CENTER;
-            }
+            // Report the tap-zone as a button EVERY frame the panel is held (not just on
+            // the press edge), so holding a direction moves the player continuously in the
+            // FlipWorld game. The shell menus don't read this (they use raw isPressed/x/y),
+            // so continuous reporting is harmless to them.
+            if (sy < (uint16_t)(h / 5))
+                lastButton = BUTTON_UP;
+            else if (sy > (uint16_t)(h * 4 / 5))
+                lastButton = BUTTON_DOWN;
+            else if (sx < (uint16_t)(w / 4))
+                lastButton = BUTTON_LEFT;
+            else if (sx > (uint16_t)(w * 3 / 4))
+                lastButton = BUTTON_RIGHT;
+            else
+                lastButton = BUTTON_CENTER;
+            lastMs = millis();
             wasDown = true;
         }
         else

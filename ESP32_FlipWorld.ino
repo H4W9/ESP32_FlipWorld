@@ -228,6 +228,27 @@ static inline void ledBlinkOk(uint16_t ms = 150) { ledOk(); delay(ms); ledOff();
 static void ledSet(bool on) { if (on) ledWifi(); else ledOff(); }
 #endif // HAS_ACT_LED
 
+// FlipWorld account credentials (SPIFFS: /pico_user.json)
+static String credGet(const char *key) {
+  File f = SPIFFS.open("/pico_user.json", FILE_READ);
+  if (!f) return "";
+  JsonDocument d;
+  DeserializationError e = deserializeJson(d, f);
+  f.close();
+  if (e) return "";
+  return d[key].as<String>();
+}
+static void credSet(const char *key, const String &val) {
+  JsonDocument d;
+  File f = SPIFFS.open("/pico_user.json", FILE_READ);
+  if (f) { deserializeJson(d, f); f.close(); }
+  d[key] = val;
+  File w = SPIFFS.open("/pico_user.json", FILE_WRITE);
+  if (!w) return;
+  serializeJson(d, w);
+  w.close();
+}
+
 // Saved WiFi networks (SPIFFS: /pico_wifi.json = {"nets":[{"s","p"}]})
 static const int WIFI_MAX_SAVED = 12;
 static int wifiLoad(String *ss, String *pp, int maxN) {
@@ -913,12 +934,12 @@ static void wifiDebug() {
 }
 
 // Settings (H4W9 layout: highlight on tap, partial redraw, no flash)
-// Theme, Accent, Font Color, Brightness, LED, WiFi Setup, WiFi Debug, About
+// Theme, Accent, Font Color, Brightness, LED, WiFi Setup, WiFi Debug, User, Pass, About
 // (+ Calibrate Touch on resistive panels — capacitive needs no calibration).
 #ifdef HAS_CAP_TOUCH
-static const int SET_N = 8;
+static const int SET_N = 10;
 #else
-static const int SET_N = 9;
+static const int SET_N = 11;
 #endif
 // Value string for the chip rows that need it for hit-testing.
 static String setChipVal(int row) {
@@ -943,9 +964,11 @@ static void drawSettingRow(int row, int sel) {
     case 4: drawChipRow(y, "LED",        setChipVal(4), true, s, 0); break;
     case 5: drawInfoRow(y, "WiFi Setup", WiFi.status() == WL_CONNECTED ? WiFi.SSID() : String(""), s); break;
     case 6: drawInfoRow(y, "WiFi Debug", "", s); break;
-    case 7: drawInfoRow(y, "About",      "", s); break;
+    case 7: drawInfoRow(y, "Username",   credGet("user"), s); break;
+    case 8: drawInfoRow(y, "Password",   credGet("pass").length() ? String("****") : String(""), s); break;
+    case 9: drawInfoRow(y, "About",      "", s); break;
 #ifndef HAS_CAP_TOUCH
-    case 8: drawInfoRow(y, "Calibrate Touch", "", s); break;
+    case 10: drawInfoRow(y, "Calibrate Touch", "", s); break;
 #endif
   }
 }
@@ -1051,9 +1074,17 @@ static void settingsFlow() {
               ledWifi(); break;                     // live preview at the new brightness
       case 5: wifiSetup(); full(); break;
       case 6: wifiDebug(); full(); break;
-      case 7: aboutScreen(); full(); break;
+      case 7: { char b[64] = {0}; String u = credGet("user"); strncpy(b, u.c_str(), sizeof(b) - 1);
+                if (touchKeyboardInput(*tft, COL_FG, COL_BG, b, sizeof(b), "FlipWorld User:", false))
+                  credSet("user", String(b));
+                full(); } break;
+      case 8: { char b[64] = {0}; String p = credGet("pass"); strncpy(b, p.c_str(), sizeof(b) - 1);
+                if (touchKeyboardInput(*tft, COL_FG, COL_BG, b, sizeof(b), "FlipWorld Password:", true))
+                  credSet("pass", String(b));
+                full(); } break;
+      case 9: aboutScreen(); full(); break;
 #ifndef HAS_CAP_TOUCH
-      case 8: touchCalRun(); full(); break;   // resistive drifts — allow a redo
+      case 10: touchCalRun(); full(); break;   // resistive drifts — allow a redo
 #endif
       default: break;
     }
@@ -1069,15 +1100,153 @@ static void settingsFlow() {
 //
 //  This shell is touch-only, so the game is driven through the same tap-zones the
 //  rest of the UI uses (InputManager maps screen edges to BUTTON_UP/DOWN/LEFT/
-//  RIGHT and the centre to BUTTON_CENTER):
-//    • tap the top / bottom / left / right edge  → move
-//    • tap the centre                            → attack
-//    • press-and-hold anywhere (~1.2 s)          → exit to the menu
-//  (The touch shell never emits BUTTON_BACK, so hold-to-exit stands in for it.)
+//  RIGHT and the centre to BUTTON_CENTER). Input is reported continuously while
+//  the panel is held, so:
+//    • hold the top / bottom / left / right edge → move continuously
+//    • hold the centre                           → attack
+//    • tap the header Back button (top-left)     → exit to the menu
 // ═════════════════════════════════════════════════════════════════════════════
 
-// Grassy field green (RGB565) — the world background the sprites sit on.
-static const uint16_t FW_WORLD_BG = 0x5C6D;
+// The world background is solid black; sprites are drawn over it in full colour.
+static const uint16_t FW_WORLD_BG = TFT_BLACK;
+
+// ── FlipWorld progression (SD-persisted, online-authoritative) ────────────────
+// Player stats live on SD at /flipworld_stats.json so the game plays fully
+// offline. When signed in (Settings → Username/Password) AND WiFi is up, we pull
+// the server copy at game start and OVERWRITE the SD file with it — online is the
+// source of truth. On exit we save back to SD and, if online, push to the server
+// so it stays the master for next time. Same jblanked.com account as FlipSocial.
+static const char *FW_STATS_FILE = "/flipworld_stats.json";
+static const char *FW_API        = "https://www.jblanked.com/flipper/api/user/";
+
+struct FWStats { String name; float level, xp, health, max_health, strength; bool valid; };
+
+static bool fwOnline() { return WiFi.status() == WL_CONNECTED && credGet("user").length() > 0; }
+
+static Entity *fwFindPlayer(Level *level) {
+  for (int i = 0; i < level->getEntityCount(); i++) {
+    Entity *e = level->getEntity(i);
+    if (e && e->type == ENTITY_PLAYER) return e;
+  }
+  return nullptr;
+}
+
+// Fill s from a {"game_stats":{...}} JSON document (server or SD file share it).
+static bool fwStatsFromDoc(JsonDocument &d, const String &fallbackName, FWStats &s) {
+  JsonObject g = d["game_stats"];
+  if (g.isNull()) return false;
+  s.name       = g["username"]   | fallbackName;
+  s.level      = g["level"]      | 1.0f;
+  s.xp         = g["xp"]         | 0.0f;
+  s.health     = g["health"]     | 100.0f;
+  s.max_health = g["max_health"] | 100.0f;
+  s.strength   = g["strength"]   | 10.0f;
+  s.valid = true;
+  return true;
+}
+
+static bool fwStatsReadSD(FWStats &s) {
+  s.valid = false;
+  File f = SD.open(FW_STATS_FILE, FILE_READ);
+  if (!f) return false;
+  JsonDocument d;
+  DeserializationError e = deserializeJson(d, f);
+  f.close();
+  if (e) return false;
+  return fwStatsFromDoc(d, "Player", s);
+}
+
+static void fwStatsWriteSD(const FWStats &s) {
+  JsonDocument d;
+  JsonObject g = d["game_stats"].to<JsonObject>();
+  g["username"]   = s.name;
+  g["level"]      = (int)s.level;
+  g["xp"]         = (long)s.xp;
+  g["health"]     = (int)s.health;
+  g["max_health"] = (int)s.max_health;
+  g["strength"]   = s.strength;
+  SD.remove(FW_STATS_FILE);                 // truncate: FILE_WRITE won't shrink a file
+  File f = SD.open(FW_STATS_FILE, FILE_WRITE);
+  if (!f) return;
+  serializeJson(d, f);
+  f.close();
+}
+
+// GET /game-stats/{user}/ → overwrite s. Blocks on the TLS request.
+static bool fwStatsFetchOnline(FWStats &s) {
+  s.valid = false;
+  String user = credGet("user"), pass = credGet("pass");
+  if (user.length() == 0) return false;
+  HTTP http;
+  const char *hk[] = {"Content-Type", "Username", "Password"};
+  const char *hv[] = {"application/json", user.c_str(), pass.c_str()};
+  ledHttp();
+  String r = http.request("GET", String(FW_API) + "game-stats/" + user + "/", "", hk, hv, 3);
+  ledOff();
+  if (r.length() == 0) return false;
+  JsonDocument d;
+  if (deserializeJson(d, r)) return false;
+  return fwStatsFromDoc(d, user, s);
+}
+
+// POST /update-game-stats/ with the current progression (best-effort).
+static void fwStatsPushOnline(const FWStats &s) {
+  String user = credGet("user"), pass = credGet("pass");
+  if (user.length() == 0) return;
+  JsonDocument d;
+  d["username"] = user;
+  JsonObject g = d["game_stats"].to<JsonObject>();
+  g["username"]   = user;
+  g["level"]      = (int)s.level;
+  g["xp"]         = (long)s.xp;
+  g["health"]     = (int)s.health;
+  g["max_health"] = (int)s.max_health;
+  g["strength"]   = s.strength;
+  String payload; serializeJson(d, payload);
+  HTTP http;
+  const char *hk[] = {"Content-Type", "Username", "Password"};
+  const char *hv[] = {"application/json", user.c_str(), pass.c_str()};
+  ledHttp();
+  http.request("POST", String(FW_API) + "update-game-stats/", payload, hk, hv, 3);
+  ledOff();
+}
+
+// After player_spawn: load progression (online overwrites SD; else SD) and apply.
+static void flipWorldStatsApply(Level *level) {
+  Entity *p = fwFindPlayer(level);
+  if (!p) return;
+  FWStats s; s.valid = false;
+  if (fwOnline()) {
+    tft->setTextDatum(MC_DATUM);
+    tft->setTextColor(COL_ACCENT, COL_BG);
+    tft->drawString("Syncing stats...", SCRW / 2, SCRH - 20, 2);
+    tft->setTextDatum(TL_DATUM);
+    if (fwStatsFetchOnline(s) && s.valid) fwStatsWriteSD(s);   // online is authoritative
+  }
+  if (!s.valid) fwStatsReadSD(s);           // offline or fetch failed → SD copy
+  if (!s.valid) return;                     // brand-new player → keep spawn defaults
+  p->level      = s.level;
+  p->xp         = s.xp;
+  p->health     = s.health;
+  p->max_health = s.max_health;
+  p->strength   = s.strength;
+}
+
+// Before teardown: save progression to SD, and push online if signed in.
+static void flipWorldStatsSave(Level *level) {
+  Entity *p = fwFindPlayer(level);
+  if (!p) return;
+  FWStats s;
+  s.name       = credGet("user").length() ? credGet("user") : String("Player");
+  s.level      = p->level;
+  s.xp         = p->xp;
+  s.health     = p->health;
+  s.max_health = p->max_health;
+  s.strength   = p->strength;
+  s.valid      = true;
+  fwStatsWriteSD(s);
+  if (fwOnline()) fwStatsPushOnline(s);
+}
 
 // Controls splash — shown until the player taps (or a 15 s timeout).
 static void flipWorldIntro() {
@@ -1086,9 +1255,9 @@ static void flipWorldIntro() {
   tft->setTextDatum(MC_DATUM);
   tft->setTextColor(COL_FG, COL_BG);
   int cy = SCRH / 2;
-  tft->drawString("Tap edges to move",    SCRW / 2, cy - 34, 2);
-  tft->drawString("Tap centre to attack", SCRW / 2, cy - 12, 2);
-  tft->drawString("Hold to exit",         SCRW / 2, cy + 10, 2);
+  tft->drawString("Hold edges to move",   SCRW / 2, cy - 34, 2);
+  tft->drawString("Hold centre to attack", SCRW / 2, cy - 12, 2);
+  tft->drawString("Back button to exit",  SCRW / 2, cy + 10, 2);
   tft->setTextColor(COL_ACCENT, COL_BG);
   tft->drawString("Tap to begin",         SCRW / 2, cy + 44, 4);
   tft->setTextDatum(TL_DATUM);
@@ -1119,7 +1288,7 @@ static void playFlipWorld() {
       vm->getDraw(),
       vm->getInputManager(),
       TFT_WHITE,             // fg — used by the in-game text overlays
-      FW_WORLD_BG,           // bg — coloured world (painted on start & on entity erase)
+      FW_WORLD_BG,           // bg — solid black world
       CAMERA_FIRST_PERSON,
       nullptr,
       FlipWorld::game_stop);
@@ -1134,27 +1303,38 @@ static void playFlipWorld() {
   FlipWorld::enemy_spawn_json(level, shadow_woods_v4);
   FlipWorld::player_spawn(level, "sword", Vector(384, 192));
 
+  flipWorldStatsApply(level);   // overlay saved/online progression onto the fresh player
+
   GameEngine *engine = new GameEngine(game, 60);
 
   // Blocking frame loop. The ViewManager isn't pumping frames while we're in here,
   // so we run the input manager ourselves each tick (Game::update() reads its last
-  // input). A sustained press exits, since movement is tap-based and never holds.
+  // input). Each frame we wipe the play area to black first, so the moving camera
+  // and the in-game text overlays never leave trails, then re-draw the header on
+  // top — a tap on its Back button (top-left) exits.
   InputManager *im = vm->getInputManager();
   TouchInput   *t  = im->getTouch();
-  uint32_t pressStart = 0;
   bool exiting = false;
+  drawHeader("FlipWorld", true);
   while (!exiting) {
     im->run();
-    engine->runAsync(false);
 
-    if (t && t->isPressed()) {
-      if (pressStart == 0) pressStart = millis();
-      else if (millis() - pressStart > 1200) exiting = true;
-    } else {
-      pressStart = 0;
+    // Header Back button exits (checked before the frame so the tap doesn't also
+    // move the player up). Only a tap inside the top-left back box counts.
+    if (t && t->isPressed() && backTapped(t->x(), t->y())) {
+      exiting = true;
+      break;
     }
+
+    // Wipe the play area (below the header) so nothing smears as the camera pans.
+    tft->fillRect(0, HDRH, SCRW, SCRH - HDRH, TFT_BLACK);
+    engine->runAsync(false);
+    drawHeader("FlipWorld", true);   // keep the header on top of the freshly drawn frame
+
     delay(1000 / 60);
   }
+
+  flipWorldStatsSave(level);   // persist progression to SD before tearing the level down
 
   engine->stop();          // stops the game, clears the screen, deletes the game
   delete engine;
