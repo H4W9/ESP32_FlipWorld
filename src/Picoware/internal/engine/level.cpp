@@ -256,27 +256,19 @@ namespace Picoware
                 // Only draw the 2D sprite if it exists
                 if (ent->sprite != nullptr)
                 {
-                    if (!game->draw->is8bit())
+                    // FlipWorld colour port: key the blit off the SPRITE's format, not the
+                    // display's. FlipWorld sprites are 1-byte "8-bit" Flipper masks (0x00 ink
+                    // / 0xFF paper); on a 16-bit panel the old image(Image*) path skipped them
+                    // (their RGB565 buffer is null). Draw the mask in the entity's ink colour
+                    // with transparent paper so the coloured world shows through; genuine
+                    // 16-bit buffer sprites still take the RGB565 path.
+                    if (ent->sprite->is_8bit)
                     {
-                        if (ent->sprite != nullptr)
-                        {
-                            game->draw->image(Vector(ent->position.x - game->pos.x, ent->position.y - game->pos.y), ent->sprite);
-                        }
+                        game->draw->imageMaskPGM(Vector(ent->position.x - game->pos.x, ent->position.y - game->pos.y), ent->sprite->getData(), ent->sprite->size, ent->ink_color);
                     }
                     else
                     {
-                        // FlipWorld colour port: the 8-bit sprites are 1-bit Flipper masks
-                        // (0x00 ink / 0xFF paper). Blit them in the entity's ink colour with
-                        // the paper left transparent so the coloured world shows through,
-                        // instead of the old monochrome basicPalette (black-on-white boxes).
-                        if (ent->is_progmem)
-                        {
-                            game->draw->imageMaskPGM(Vector(ent->position.x - game->pos.x, ent->position.y - game->pos.y), ent->sprite->getData(), ent->sprite->size, ent->ink_color);
-                        }
-                        else
-                        {
-                            game->draw->image(Vector(ent->position.x - game->pos.x, ent->position.y - game->pos.y), ent->sprite->getData(), ent->sprite->size);
-                        }
+                        game->draw->image(Vector(ent->position.x - game->pos.x, ent->position.y - game->pos.y), ent->sprite);
                     }
                 }
 
