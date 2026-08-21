@@ -176,7 +176,7 @@ namespace FlipWorld
     void icon_spawn_json(Level *level, const char *json)
     {
         // Check heap
-        size_t freeHeap = rp2040.getFreeHeap();
+        size_t freeHeap = ESP.getFreeHeap(); // ESP32 port (was RP2040 rp2040.getFreeHeap())
         if (freeHeap < 1024)
         {
             return;
@@ -187,7 +187,7 @@ namespace FlipWorld
         DeserializationError error = deserializeJson(doc, json);
 
         // Check heap
-        freeHeap = rp2040.getFreeHeap();
+        freeHeap = ESP.getFreeHeap();
         if (freeHeap < 1024)
         {
             return;
