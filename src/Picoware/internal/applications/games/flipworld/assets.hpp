@@ -4,10 +4,12 @@
 // All assets from FlipWorld game: https://github.com/jblanked/FlipWorld
 // Translated with: https://www.jblanked.com/flipper/png-to-fb/
 
-static const PROGMEM char shadow_woods_v4[2210] = R"json(
+// ── The three FlipWorld worlds (icon layouts from jblanked/FlipWorld getLevelJson;
+//    enemies per world). Parsed by icon_spawn_json (json_data) + enemy_spawn_json
+//    (enemy_data). Enemy ids must be sprite names: cyclops / ogre / ghost. ──────
+static const PROGMEM char world_home_woods[] = R"json(
     {
-    "name": "shadow_woods_v4",
-    "author": "ChatGPT",
+    "name": "Home Woods",
     "json_data": [
         {"icon": "rock_medium", "x": 100, "y": 100, "amount": 10, "horizontal": true},
         {"icon": "rock_medium", "x": 400, "y": 300, "amount": 6, "horizontal": true},
@@ -16,13 +18,77 @@ static const PROGMEM char shadow_woods_v4[2210] = R"json(
         {"icon": "fence", "x": 250, "y": 150, "amount": 12, "horizontal": true},
         {"icon": "fence", "x": 550, "y": 350, "amount": 12, "horizontal": true},
         {"icon": "rock_large", "x": 400, "y": 70, "amount": 12, "horizontal": true},
-        {"icon": "rock_large", "x": 200, "y": 200, "amount": 6, "horizontal": false}
+        {"icon": "rock_large", "x": 200, "y": 200, "amount": 6, "horizontal": false},
+        {"icon": "tree", "x": 5, "y": 5, "amount": 45, "horizontal": true},
+        {"icon": "tree", "x": 5, "y": 5, "amount": 20, "horizontal": false},
+        {"icon": "tree", "x": 22, "y": 22, "amount": 44, "horizontal": true},
+        {"icon": "tree", "x": 5, "y": 347, "amount": 45, "horizontal": true},
+        {"icon": "tree", "x": 5, "y": 364, "amount": 45, "horizontal": true},
+        {"icon": "tree", "x": 735, "y": 37, "amount": 18, "horizontal": false},
+        {"icon": "tree", "x": 752, "y": 37, "amount": 18, "horizontal": false}
     ],
     "enemy_data": [
         {"id": "cyclops", "index": 0, "start_position": {"x": 350, "y": 220}, "end_position": {"x": 390, "y": 220}, "move_timer": 2, "speed": 30, "attack_timer": 0.4, "strength": 10, "health": 100},
         {"id": "ogre", "index": 1, "start_position": {"x": 200, "y": 320}, "end_position": {"x": 220, "y": 320}, "move_timer": 0.5, "speed": 45, "attack_timer": 0.6, "strength": 20, "health": 200},
-        {"id": "ghost", "index": 2, "start_position": {"x": 100, "y": 80}, "end_position": {"x": 180, "y": 85}, "move_timer": 2.2, "speed": 55, "attack_timer": 0.5, "strength": 30, "health": 300},
-        {"id": "ogre", "index": 3, "start_position": {"x": 400, "y": 50}, "end_position": {"x": 490, "y": 50}, "move_timer": 1.7, "speed": 35, "attack_timer": 1.0, "strength": 20, "health": 200}
+        {"id": "ghost", "index": 2, "start_position": {"x": 100, "y": 80}, "end_position": {"x": 180, "y": 85}, "move_timer": 2.2, "speed": 55, "attack_timer": 0.5, "strength": 30, "health": 300}
+    ]
+    }
+    )json";
+
+static const PROGMEM char world_rock_world[] = R"json(
+    {
+    "name": "Rock World",
+    "json_data": [
+        {"icon": "house", "x": 100, "y": 50, "amount": 1, "horizontal": true},
+        {"icon": "tree", "x": 650, "y": 420, "amount": 5, "horizontal": true},
+        {"icon": "rock_large", "x": 150, "y": 150, "amount": 2, "horizontal": true},
+        {"icon": "rock_medium", "x": 210, "y": 80, "amount": 3, "horizontal": true},
+        {"icon": "rock_small", "x": 480, "y": 110, "amount": 4, "horizontal": false},
+        {"icon": "flower", "x": 280, "y": 140, "amount": 3, "horizontal": true},
+        {"icon": "plant", "x": 120, "y": 130, "amount": 2, "horizontal": true},
+        {"icon": "rock_large", "x": 400, "y": 200, "amount": 3, "horizontal": true},
+        {"icon": "rock_medium", "x": 600, "y": 50, "amount": 5, "horizontal": false},
+        {"icon": "rock_small", "x": 500, "y": 100, "amount": 6, "horizontal": true},
+        {"icon": "tree", "x": 650, "y": 20, "amount": 4, "horizontal": true},
+        {"icon": "flower", "x": 550, "y": 250, "amount": 8, "horizontal": true},
+        {"icon": "plant", "x": 300, "y": 300, "amount": 5, "horizontal": true},
+        {"icon": "tree", "x": 50, "y": 300, "amount": 10, "horizontal": true},
+        {"icon": "flower", "x": 350, "y": 100, "amount": 7, "horizontal": true}
+    ],
+    "enemy_data": [
+        {"id": "ogre", "index": 0, "start_position": {"x": 300, "y": 200}, "end_position": {"x": 360, "y": 200}, "move_timer": 1.5, "speed": 40, "attack_timer": 0.6, "strength": 20, "health": 200},
+        {"id": "cyclops", "index": 1, "start_position": {"x": 500, "y": 150}, "end_position": {"x": 540, "y": 150}, "move_timer": 2, "speed": 30, "attack_timer": 0.4, "strength": 15, "health": 120},
+        {"id": "ghost", "index": 2, "start_position": {"x": 150, "y": 250}, "end_position": {"x": 230, "y": 255}, "move_timer": 2, "speed": 55, "attack_timer": 0.5, "strength": 30, "health": 300},
+        {"id": "ogre", "index": 3, "start_position": {"x": 600, "y": 300}, "end_position": {"x": 660, "y": 300}, "move_timer": 1.7, "speed": 35, "attack_timer": 1.0, "strength": 25, "health": 250}
+    ]
+    }
+    )json";
+
+static const PROGMEM char world_forest_world[] = R"json(
+    {
+    "name": "Forest World",
+    "json_data": [
+        {"icon": "rock_small", "x": 120, "y": 20, "amount": 10, "horizontal": false},
+        {"icon": "tree", "x": 50, "y": 50, "amount": 10, "horizontal": true},
+        {"icon": "flower", "x": 200, "y": 70, "amount": 8, "horizontal": false},
+        {"icon": "rock_small", "x": 250, "y": 100, "amount": 8, "horizontal": true},
+        {"icon": "rock_medium", "x": 300, "y": 140, "amount": 2, "horizontal": true},
+        {"icon": "plant", "x": 50, "y": 300, "amount": 10, "horizontal": true},
+        {"icon": "rock_large", "x": 650, "y": 250, "amount": 3, "horizontal": true},
+        {"icon": "flower", "x": 300, "y": 350, "amount": 5, "horizontal": true},
+        {"icon": "tree", "x": 20, "y": 150, "amount": 10, "horizontal": false},
+        {"icon": "tree", "x": 5, "y": 5, "amount": 45, "horizontal": true},
+        {"icon": "tree", "x": 22, "y": 22, "amount": 44, "horizontal": true},
+        {"icon": "tree", "x": 5, "y": 347, "amount": 45, "horizontal": true},
+        {"icon": "tree", "x": 5, "y": 364, "amount": 45, "horizontal": true},
+        {"icon": "tree", "x": 735, "y": 37, "amount": 18, "horizontal": false},
+        {"icon": "tree", "x": 752, "y": 37, "amount": 18, "horizontal": false}
+    ],
+    "enemy_data": [
+        {"id": "ghost", "index": 0, "start_position": {"x": 200, "y": 100}, "end_position": {"x": 280, "y": 105}, "move_timer": 2.2, "speed": 55, "attack_timer": 0.5, "strength": 30, "health": 300},
+        {"id": "cyclops", "index": 1, "start_position": {"x": 400, "y": 200}, "end_position": {"x": 440, "y": 200}, "move_timer": 2, "speed": 30, "attack_timer": 0.4, "strength": 15, "health": 150},
+        {"id": "ogre", "index": 2, "start_position": {"x": 550, "y": 300}, "end_position": {"x": 610, "y": 300}, "move_timer": 1.5, "speed": 45, "attack_timer": 0.6, "strength": 25, "health": 250},
+        {"id": "ghost", "index": 3, "start_position": {"x": 300, "y": 250}, "end_position": {"x": 380, "y": 255}, "move_timer": 2, "speed": 50, "attack_timer": 0.5, "strength": 35, "health": 350}
     ]
     }
     )json";

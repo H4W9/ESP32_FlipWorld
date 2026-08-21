@@ -50,7 +50,9 @@ namespace Picoware
         Vector old_position;           // The old position of the entity.
         Vector direction;              // The direction the entity is facing.
         Vector plane;                  // The camera plane perpendicular to the direction.
-        bool is_player;                // Indicates if the entity is the player.
+        bool is_player = false;        // Indicates if the entity is the player. (Never set by
+                                       // the ctors upstream — defaulted here so Level::clear
+                                       // can safely keep a player shared across several levels.)
         bool position_changed = false; // Indicates if the position of the entity has changed.
         Vector size;                   // The size of the entity.
         Image *sprite;                 // The current displayed sprite of the entity.

@@ -548,6 +548,7 @@ namespace FlipWorld
             // Create the player entity
             Entity *player = new Entity(level->getBoard(), "Player", ENTITY_PLAYER, position, player_left.size, player_left.data, player_left.data, player_right.data, NULL, NULL, player_update, player_render, NULL, true, true);
             player->ink_color = 0xFFFF; // FlipWorld colour port: white hero silhouette
+            player->is_player = true;   // shared across levels; Level::clear must not delete it
             player->level = 1;
             player->health = 100;
             player->max_health = 100;

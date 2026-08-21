@@ -87,6 +87,10 @@ static const int ITEMH    = 34;
 #endif
 static const int CONTENTY = HDRH;
 
+// FlipWorld player progression (defined up here so Arduino's auto-generated
+// prototypes — inserted above the first function — can see the type).
+struct FWStats { String name; float level, xp, health, max_health, strength; bool valid; };
+
 #ifndef HAS_CAP_TOUCH
 // Resistive touch calibration (V8). Capacitive panels report real coordinates
 // and need none of this. The 5 uint16 blob is TFT_eSPI's own format; it lives on
@@ -1119,8 +1123,6 @@ static const uint16_t FW_WORLD_BG = TFT_BLACK;
 static const char *FW_STATS_FILE = "/flipworld_stats.json";
 static const char *FW_API        = "https://www.jblanked.com/flipper/api/user/";
 
-struct FWStats { String name; float level, xp, health, max_health, strength; bool valid; };
-
 static bool fwOnline() { return WiFi.status() == WL_CONNECTED && credGet("user").length() > 0; }
 
 static Entity *fwFindPlayer(Level *level) {
@@ -1277,8 +1279,42 @@ static void flipWorldIntro() {
   im->reset(true, 250);
 }
 
+// The three worlds, played in order (like the Flipper build's LevelHomeWoods /
+// LevelRockWorld / LevelForestWorld). All three are built up front as levels of
+// one Game and share a single player entity; game->level_switch() moves between
+// them. The reference only switches levels over multiplayer, so for single-player
+// we advance when every enemy in the current world has been defeated.
+static const int   FW_WORLD_COUNT = 3;
+static const char *FW_WORLD_NAMES[FW_WORLD_COUNT] = { "Home Woods", "Rock World", "Forest World" };
+
+// Count enemies still alive (not yet marked ENTITY_DEAD) in a level.
+static int fwLivingEnemies(Level *level) {
+  int n = 0;
+  for (int i = 0; i < level->getEntityCount(); i++) {
+    Entity *e = level->getEntity(i);
+    if (e && e->type == ENTITY_ENEMY && e->state != ENTITY_DEAD) n++;
+  }
+  return n;
+}
+
+// Brief full-screen title card shown when a world is entered.
+static void fwWorldBanner(int idx) {
+  tft->fillScreen(COL_BG);
+  drawHeader(FW_WORLD_NAMES[idx], true);
+  tft->setTextDatum(MC_DATUM);
+  tft->setTextColor(COL_DIM, COL_BG);
+  char sub[24]; snprintf(sub, sizeof(sub), "World %d of %d", idx + 1, FW_WORLD_COUNT);
+  tft->drawString(sub, SCRW / 2, SCRH / 2 - 16, 2);
+  tft->setTextColor(COL_ACCENT, COL_BG);
+  tft->drawString(FW_WORLD_NAMES[idx], SCRW / 2, SCRH / 2 + 12, 4);
+  tft->setTextDatum(TL_DATUM);
+  delay(1200);
+}
+
 static void playFlipWorld() {
   flipWorldIntro();
+
+  const char *worldJson[FW_WORLD_COUNT] = { world_home_woods, world_rock_world, world_forest_world };
 
   Board board = vm->getBoard();
 
@@ -1293,29 +1329,38 @@ static void playFlipWorld() {
       nullptr,
       FlipWorld::game_stop);
 
-  Level *level = new Level("Level 1", Vector(768, 384), game, NULL, NULL);
-  game->level_add(level);
+  // Build all three worlds and add them to the game.
+  Level *worlds[FW_WORLD_COUNT];
+  for (int i = 0; i < FW_WORLD_COUNT; i++) {
+    worlds[i] = new Level(FW_WORLD_NAMES[i], Vector(768, 384), game, NULL, NULL);
+    game->level_add(worlds[i]);
+    FlipWorld::icon_spawn_json(worlds[i], worldJson[i]);
+    FlipWorld::enemy_spawn_json(worlds[i], worldJson[i]);
+  }
+
+  // One player, shared across every world (is_player keeps Level::clear from
+  // deleting it when a level is torn down).
+  FlipWorld::player_spawn(worlds[0], "sword", Vector(384, 192));
+  Entity *player = fwFindPlayer(worlds[0]);
+  if (player) {
+    worlds[1]->entity_add(player);
+    worlds[2]->entity_add(player);
+  }
+
+  flipWorldStatsApply(worlds[0]);   // saved/online progression onto the shared player
 
   game->pos     = Vector(384, 192);
   game->old_pos = game->pos;
-
-  FlipWorld::icon_spawn_json(level, shadow_woods_v4);
-  FlipWorld::enemy_spawn_json(level, shadow_woods_v4);
-  FlipWorld::player_spawn(level, "sword", Vector(384, 192));
-
-  flipWorldStatsApply(level);   // overlay saved/online progression onto the fresh player
+  game->level_switch(0);
 
   GameEngine *engine = new GameEngine(game, 60);
 
-  // Blocking frame loop. The ViewManager isn't pumping frames while we're in here,
-  // so we run the input manager ourselves each tick (Game::update() reads its last
-  // input). Each frame we wipe the play area to black first, so the moving camera
-  // and the in-game text overlays never leave trails, then re-draw the header on
-  // top — a tap on its Back button (top-left) exits.
   InputManager *im = vm->getInputManager();
   TouchInput   *t  = im->getTouch();
-  bool exiting = false;
-  drawHeader("FlipWorld", true);
+  int  worldIdx = 0;
+  bool exiting   = false;
+  fwWorldBanner(0);
+  drawHeader(FW_WORLD_NAMES[worldIdx], true);
   while (!exiting) {
     im->run();
 
@@ -1329,15 +1374,38 @@ static void playFlipWorld() {
     // Wipe the play area (below the header) so nothing smears as the camera pans.
     tft->fillRect(0, HDRH, SCRW, SCRH - HDRH, TFT_BLACK);
     engine->runAsync(false);
-    drawHeader("FlipWorld", true);   // keep the header on top of the freshly drawn frame
+    drawHeader(FW_WORLD_NAMES[worldIdx], true);
+
+    // Cleared every enemy in this world → advance to the next (or win).
+    if (fwLivingEnemies(worlds[worldIdx]) == 0) {
+      if (worldIdx + 1 < FW_WORLD_COUNT) {
+        worldIdx++;
+        if (player) { player->position = Vector(384, 192); player->old_position = player->position; }
+        game->pos = Vector(384, 192); game->old_pos = game->pos;
+        game->level_switch(worldIdx);
+        fwWorldBanner(worldIdx);
+        drawHeader(FW_WORLD_NAMES[worldIdx], true);
+      } else {
+        tft->fillScreen(COL_BG);
+        drawHeader("FlipWorld", true);
+        tft->setTextDatum(MC_DATUM);
+        tft->setTextColor(COL_ACCENT, COL_BG);
+        tft->drawString("All worlds cleared!", SCRW / 2, SCRH / 2, 4);
+        tft->setTextDatum(TL_DATUM);
+        delay(2500);
+        exiting = true;
+        break;
+      }
+    }
 
     delay(1000 / 60);
   }
 
-  flipWorldStatsSave(level);   // persist progression to SD before tearing the level down
+  flipWorldStatsSave(worlds[0]);   // persist progression (shared player, any level works)
 
-  engine->stop();          // stops the game, clears the screen, deletes the game
+  engine->stop();          // stops the game, clears the screen, deletes the game (+ levels)
   delete engine;
+  if (player) delete player;   // Game deleted the levels but Level::clear skipped is_player
   im->reset(true, 200);
 }
 
