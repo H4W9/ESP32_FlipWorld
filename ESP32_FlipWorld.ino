@@ -1214,8 +1214,8 @@ static void fwStatsPushOnline(const FWStats &s) {
 }
 
 // After player_spawn: load progression and apply. When onlineSync is true and we're
-// online, the server copy is pulled and overwrites SD (authoritative); otherwise the
-// SD copy is used (used for later campaign maps so we don't re-sync every level).
+// online, the server copy is pulled and overwrites SD (authoritative start); later
+// campaign maps read the SD copy the previous map wrote.
 static void flipWorldStatsApply(Level *level, bool onlineSync = true) {
   Entity *p = fwFindPlayer(level);
   if (!p) return;
@@ -1225,9 +1225,9 @@ static void flipWorldStatsApply(Level *level, bool onlineSync = true) {
     tft->setTextColor(COL_FG, COL_BG);
     tft->drawString("Syncing stats...", SCRW / 2, SCRH - 20, 2);
     tft->setTextDatum(TL_DATUM);
-    if (fwStatsFetchOnline(s) && s.valid) fwStatsWriteSD(s);   // online is authoritative
+    if (fwStatsFetchOnline(s) && s.valid) fwStatsWriteSD(s); // online is authoritative
   }
-  if (!s.valid) fwStatsReadSD(s);           // offline or fetch failed → SD copy
+  if (!s.valid) fwStatsReadSD(s);           // offline / fetch failed → SD copy
   if (!s.valid) return;                     // brand-new player → keep spawn defaults
   p->level      = s.level;
   p->xp         = s.xp;
@@ -1236,11 +1236,10 @@ static void flipWorldStatsApply(Level *level, bool onlineSync = true) {
   p->strength   = s.strength;
 }
 
-// Before teardown: save progression to SD, and push online if signed in.
-static void flipWorldStatsSave(Level *level) {
+// Capture the player's current progression into s.
+static bool fwCaptureStats(Level *level, FWStats &s) {
   Entity *p = fwFindPlayer(level);
-  if (!p) return;
-  FWStats s;
+  if (!p) return false;
   s.name       = credGet("user").length() ? credGet("user") : String("Player");
   s.level      = p->level;
   s.xp         = p->xp;
@@ -1248,8 +1247,39 @@ static void flipWorldStatsSave(Level *level) {
   s.max_health = p->max_health;
   s.strength   = p->strength;
   s.valid      = true;
-  fwStatsWriteSD(s);
-  if (fwOnline()) fwStatsPushOnline(s);
+  return true;
+}
+
+// Is `local` a legit progression from the server copy? Rejects regressions AND
+// implausible jumps: XP and level may only go up, and the XP gain can't exceed
+// maxGain — the most the maps actually played this run could yield (anti-cheat that
+// still passes a real full campaign).
+static bool fwStatsPlausible(const FWStats &local, const FWStats &server, float maxGain) {
+  if (!local.valid || !server.valid) return false;
+  if (local.xp != local.xp) return false;                 // NaN
+  if (local.level < 1 || local.xp < 0) return false;
+  if (local.xp + 0.5f < server.xp) return false;          // no XP regression
+  if (local.level + 0.5f < server.level) return false;    // no level regression
+  if (local.xp - server.xp > maxGain + 1.0f) return false; // more than the maps could give
+  return true;
+}
+
+// On exit: pull the server's CURRENT stats, verify our progress is legit (gained no
+// more than the played maps could yield), then push. Keeps SD consistent either way.
+// Returns true only if we actually synced up.
+static bool flipWorldStatsSyncOnline(const FWStats &local, float maxGain) {
+  if (!local.valid || !fwOnline()) return false;
+  FWStats srv; srv.valid = false;
+  if (!(fwStatsFetchOnline(srv) && srv.valid)) return false; // can't verify → don't push
+  if (fwStatsPlausible(local, srv, maxGain)) {
+    fwStatsPushOnline(local);   // legit progression → sync up
+    fwStatsWriteSD(local);
+    return true;
+  }
+  // Server is ahead of us (e.g. another device advanced) or our stats look wrong —
+  // adopt the server's authoritative copy locally and DON'T push a regression.
+  fwStatsWriteSD(srv);
+  return false;
 }
 
 // Controls splash — shown until the player taps (or a 15 s timeout).
@@ -1301,6 +1331,14 @@ static const char *FW_WORLD_JSON[FW_WORLD_COUNT] = {
   world_07, world_08, world_09, world_10, world_11, world_12,
   world_13, world_14, world_15, world_16, world_17, world_18,
   world_19, world_20, world_21, world_22, world_23, world_24 };
+
+// Max XP each map can legitimately yield (worst case: level-1 player, most hits per
+// enemy = ceil(health/10) * enemy strength). Summed over the maps actually played
+// this run, it caps how much XP a sync may add — so a real full campaign passes but
+// an impossible jump is rejected. Regenerate with the tools/ script if enemies change.
+static const long FW_MAP_MAXXP[FW_WORLD_COUNT] = {
+  1100, 1422, 1400, 1716, 2440, 2342, 2720, 3088, 4420, 4306, 5230, 6032,
+  5378, 5674, 5824, 5824, 7718, 8116, 7828, 8374, 10670, 11538, 11702, 14090 };
 
 // Map-unlock progress (SPIFFS /flipworld_progress.json). "unlocked" = how many maps
 // are playable (>= 1). Clearing a map unlocks the next; the count never regresses.
@@ -1367,6 +1405,49 @@ static void fwCanvasHeader(TFT_eSprite *g, const char *worldName) {
   g->setTextDatum(TL_DATUM);
 }
 
+// Mini-map in the top-right: whole level scaled down, with the current camera view
+// box, the player (blue) and living enemies (red). Drawn onto the canvas each frame.
+static void fwDrawMinimap(TFT_eSprite *g, Level *level, Game *game) {
+  if (!g || !level || game->current_level == nullptr) return;
+  float worldW = level->size.x, worldH = level->size.y;
+  if (worldW <= 0 || worldH <= 0) return;
+
+  const int mmW = 64, mmH = 32;                 // 2:1, matches the 768x384 worlds
+  const int mmX = SCRW - mmW - 4, mmY = HDRH + 3;
+  float sx = mmW / worldW, sy = mmH / worldH;
+
+  g->fillRect(mmX, mmY, mmW, mmH, TFT_BLACK);
+  g->drawRect(mmX, mmY, mmW, mmH, 0x7BEF);      // grey frame
+
+  // current camera view box
+  int vx = mmX + (int)(game->pos.x * sx);
+  int vy = mmY + (int)(game->pos.y * sy);
+  int vw = (int)(game->size.x * sx), vh = (int)(game->size.y * sy);
+  if (vx < mmX) { vw -= (mmX - vx); vx = mmX; }
+  if (vy < mmY) { vh -= (mmY - vy); vy = mmY; }
+  if (vw > mmW - (vx - mmX)) vw = mmW - (vx - mmX);
+  if (vh > mmH - (vy - mmY)) vh = mmH - (vy - mmY);
+  if (vw > 0 && vh > 0) g->drawRect(vx, vy, vw, vh, 0x39C7); // dim view box
+
+  // Entities are added scenery-first, then enemies, then the player, so iterating in
+  // order draws world objects underneath and the player on top.
+  for (int i = 0; i < level->getEntityCount(); i++) {
+    Entity *e = level->getEntity(i);
+    if (!e || !e->is_active) continue;
+    uint16_t col;
+    int r;
+    if (e->is_player) { col = 0x1C9F; r = 2; }                                    // blue player
+    else if (e->type == ENTITY_ENEMY) { if (e->state == ENTITY_DEAD) continue; col = 0xF800; r = 1; } // red foe
+    else if (e->type == ENTITY_ICON) { col = e->ink_color; r = 0; }               // world object, its own colour
+    else continue;
+    int dx = mmX + (int)(e->position.x * sx);
+    int dy = mmY + (int)(e->position.y * sy);
+    if (dx < mmX) dx = mmX; if (dx > mmX + mmW - r - 1) dx = mmX + mmW - r - 1;
+    if (dy < mmY) dy = mmY; if (dy > mmY + mmH - r - 1) dy = mmY + mmH - r - 1;
+    g->fillRect(dx, dy, r + 1, r + 1, col);
+  }
+}
+
 // Centred message screen (used for save/sync + cleared/unlock notices).
 static void fwNotice(const String &line1, const String &line2, uint32_t holdMs) {
   tft->fillScreen(COL_BG);
@@ -1395,8 +1476,11 @@ static void playMaps(int startIndex, bool campaign) {
 
   int  mapIndex   = startIndex;
   bool campaignWin = false;
+  FWStats runStats; runStats.valid = false;   // latest progression, synced once on exit
+  float xpBudget = 0;                          // max XP the maps played this run can yield
 
   for (;;) {
+    xpBudget += FW_MAP_MAXXP[mapIndex];        // account for the map about to be played
     Game *game = new Game(
         "FlipWorld", Vector(board.width, board.height),
         vm->getDraw(), vm->getInputManager(),
@@ -1430,13 +1514,16 @@ static void playMaps(int startIndex, bool campaign) {
       draw->clear(Vector(0, 0), Vector(SCRW, SCRH), FW_WORLD_BG);
       engine->runAsync(false);
       fwCanvasHeader(canvas, FW_WORLD_NAMES[mapIndex]);
+      fwDrawMinimap(canvas, level, game);
       draw->swap();
       if (fwLivingEnemies(level) == 0) { cleared = true; exiting = true; break; }
       delay(1);   // minimal yield (WDT); the swap() push already paces the frame rate
     }
 
-    // Persist progression to SD (+ push online if signed in) before teardown.
-    flipWorldStatsSave(level);
+    // Capture the latest progression and keep the local SD copy up to date before
+    // teardown. The online sync (pull → verify → push) happens once, on the way out.
+    fwCaptureStats(level, runStats);
+    if (runStats.valid) fwStatsWriteSD(runStats);
     if (cleared) fwSetUnlockedCount(mapIndex + 2);   // unlock the next map
 
     engine->stop();
@@ -1459,9 +1546,14 @@ static void playMaps(int startIndex, bool campaign) {
 
   if (campaignWin) fwNotice("All maps cleared!", "You beat FlipWorld!", 2800);
 
-  // Save/sync confirmation on the way out.
-  bool online = fwOnline();
-  fwNotice(online ? "Stats saved & synced online" : "Stats saved to SD", "", 1600);
+  // Online sync on the way out: pull the server's current stats, verify our progress
+  // is a legit improvement, then push. (Prevents regressions and cheated jumps.)
+  bool synced = false;
+  if (runStats.valid && fwOnline()) {
+    fwNotice("Syncing stats...", "", 0);
+    synced = flipWorldStatsSyncOnline(runStats, xpBudget);
+  }
+  fwNotice(synced ? "Stats saved & synced online" : "Stats saved to SD", "", 1600);
 
   im->reset(true, 200);
 }
