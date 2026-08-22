@@ -553,28 +553,37 @@ namespace FlipWorld
     // Draw the user stats (health, xp, and level) as a fixed HUD.
     static void draw_user_stats(Entity *self, Vector pos, Game *game)
     {
-        const int ROW = 18; // spacing between rows
-
-        // black backing box so the text stays readable over the world
-        game->draw->display->fillRect(pos.x - 2, pos.y - 3, 60, ROW * 3 + 6, TFT_BLACK);
-
-        char health[32];
-        char xp[32];
-        char level[32];
-
-        snprintf(health, sizeof(health), "HP : %.0f", (double)self->health);
-        snprintf(level, sizeof(level), "LVL: %.0f", (double)self->level);
-
-        if (self->xp < 10000)
-            snprintf(xp, sizeof(xp), "XP : %.0f", (double)self->xp);
-        else
-            snprintf(xp, sizeof(xp), "XP : %.0fK", (double)self->xp / 1000);
-
-        // draw rows with generous spacing (green HUD — distinct from red/white labels)
         const uint16_t STAT_COL = 0x07E0; // green
+        const int ROW = 16;
+
+        // XP progress within the current level: find the XP threshold the current level
+        // started at (base) and the one for the next level (next) — same 100 * 1.5^n
+        // curve the game levels on — so we can show "into / needed" and a bar.
+        float xp = self->xp;
+        int lvl = 1;
+        float req = 100.0f, base = 0.0f;
+        while (lvl < 100 && xp >= req) { lvl++; base = req; req *= 1.5f; }
+        float into = xp - base, span = req - base;
+        float frac = (span > 0) ? into / span : 0.0f;
+        if (frac < 0) frac = 0; if (frac > 1) frac = 1;
+
+        const int boxW = 104, boxH = ROW * 3 + 20;
+        game->draw->display->fillRect(pos.x - 2, pos.y - 3, boxW, boxH, TFT_BLACK);
+
+        char health[24], level[24], xpS[32];
+        snprintf(health, sizeof(health), "HP %.0f/%.0f", (double)self->health, (double)self->max_health);
+        snprintf(level, sizeof(level), "LVL %d", lvl);
+        snprintf(xpS, sizeof(xpS), "XP %.0f/%.0f", (double)into, (double)span);
+
         game->draw->text(Vector(pos.x, pos.y), health, STAT_COL);
-        game->draw->text(Vector(pos.x, pos.y + ROW), xp, STAT_COL);
-        game->draw->text(Vector(pos.x, pos.y + ROW * 2), level, STAT_COL);
+        game->draw->text(Vector(pos.x, pos.y + ROW), level, STAT_COL);
+
+        // XP bar toward the next level, with the into/needed value under it.
+        int barX = pos.x, barY = pos.y + ROW * 2 + 2, barW = boxW - 6, barH = 6;
+        game->draw->display->drawRect(barX, barY, barW, barH, STAT_COL);
+        int fillW = (int)((barW - 2) * frac);
+        if (fillW > 0) game->draw->display->fillRect(barX + 1, barY + 1, fillW, barH - 2, STAT_COL);
+        game->draw->text(Vector(pos.x, barY + barH + 1), xpS, STAT_COL);
     }
 
     static void player_render(Entity *self, Draw *draw, Game *game)

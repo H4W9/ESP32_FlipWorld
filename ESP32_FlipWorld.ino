@@ -1397,11 +1397,32 @@ static void fwWorldBanner(int idx) {
 static void fwCanvasHeader(TFT_eSprite *g, const char *worldName) {
   if (!g) return;
   g->fillRect(0, 0, SCRW, HDRH, COL_ACCENT);
+
+  // Back button — identical to the menus' (outlined rounded box + left chevron); its
+  // tap region matches backTapped (top-left).
+  g->drawRoundRect(2, 3, 40, 22, 4, theme.neon(3, COL_DIM));
+  { int cx = 22, cy = 14; g->fillTriangle(cx + 3, cy - 5, cx + 3, cy + 5, cx - 4, cy, COL_FG); }
+
+  // Title (centred).
   g->setTextColor(COL_FG, COL_ACCENT);
-  g->setTextDatum(ML_DATUM);
-  g->drawString("< Back", 6, HDRH / 2, 2);
   g->setTextDatum(MC_DATUM);
   g->drawString(worldName, SCRW / 2, HDRH / 2, 2);
+
+  // Status corner: battery % (from the same MAX17048 the shell reads, refreshed at
+  // most every 10 s) + a WiFi state dot — same as the FlipSocial header.
+  if (g_battOk && (g_battMs == 0 || millis() - g_battMs > 10000)) battUpdate();
+  int rx = SCRW - 4;
+  if (g_battPct >= 0) {
+    char pct[8];
+    snprintf(pct, sizeof(pct), "%d%%", g_battPct);
+    g->setTextColor(COL_FG, COL_ACCENT);
+    g->setTextDatum(MR_DATUM);
+    g->drawString(pct, rx, HDRH / 2, 1);
+    rx -= g->textWidth(pct, 1) + 8;
+  }
+  uint16_t wc = g_wifiConnecting ? TFT_YELLOW
+              : (WiFi.status() == WL_CONNECTED ? COL_OK : TFT_RED);
+  g->fillCircle(rx - 3, HDRH / 2, 3, wc);
   g->setTextDatum(TL_DATUM);
 }
 
