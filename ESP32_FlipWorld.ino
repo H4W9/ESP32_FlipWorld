@@ -1560,6 +1560,22 @@ static void playMaps(int startIndex, bool campaign) {
 
 // Map-select screen: lists all maps; locked ones can't be entered. Returns the
 // chosen (unlocked) map index, or -1 on Back.
+// Campaign start chooser: Continue from the furthest map reached, or start over from
+// Map 1. Returns the map index to start at, or -1 on Back. With no progress yet it
+// just returns 0 (Map 1) without prompting.
+static int fwCampaignStart() {
+  int unlocked = fwUnlockedCount();
+  if (unlocked <= 1) return 0;                 // nothing to continue → start at Map 1
+  int resumeIdx = unlocked - 1;                // highest unlocked = furthest reached
+  String rows[2];
+  rows[0] = String("Continue - ") + FW_WORLD_NAMES[resumeIdx];
+  rows[1] = "New Campaign (Map 1)";
+  int sel = scrollList("Campaign", rows, 2, true, "Back", "", "");
+  if (sel == 0) return resumeIdx;
+  if (sel == 1) return 0;
+  return -1;                                   // Back
+}
+
 static int fwMapPicker() {
   String rows[FW_WORLD_COUNT];
   for (;;) {
@@ -1619,7 +1635,7 @@ static void drawMenu() {
 
 static void openMenuItem(int i) {
   switch (i) {
-    case 0: playMaps(0, true); break;  // Campaign — clear a map to advance to the next
+    case 0: { int s = fwCampaignStart(); if (s >= 0) playMaps(s, true); } break; // Campaign (continue / new)
     case 1:                            // Select Map — pick a map, play it, back to picker
       for (;;) { int m = fwMapPicker(); if (m < 0) break; playMaps(m, false); }
       break;
