@@ -1288,14 +1288,19 @@ static void flipWorldIntro() {
 // one Game and share a single player entity; game->level_switch() moves between
 // them. The reference only switches levels over multiplayer, so for single-player
 // we advance when every enemy in the current world has been defeated.
-static const int   FW_WORLD_COUNT = 12;
+static const int   FW_WORLD_COUNT = 24;
 static const char *FW_WORLD_NAMES[FW_WORLD_COUNT] = {
-  "Home Woods",  "Rock World",  "Forest Glade", "Meadow",
-  "Stronghold",  "Lakeside",    "Boulder Field","Village",
-  "Deep Woods",  "Wasteland",   "Flower Garden","Shadow Keep" };
+  "Home Woods",   "Rock World",   "Forest Glade",   "Meadow",
+  "Stronghold",   "Lakeside",     "Boulder Field",  "Village",
+  "Deep Woods",   "Wasteland",    "Flower Garden",  "Shadow Keep",
+  "Twin Peaks",   "Marshland",    "Ruins",          "Sunflower Fields",
+  "Frozen Lake",  "The Hollow",   "Crossroads",     "Crater",
+  "Enchanted Grove","Ironhold",   "Serpent Marsh",  "Dragon's Lair" };
 static const char *FW_WORLD_JSON[FW_WORLD_COUNT] = {
   world_01, world_02, world_03, world_04, world_05, world_06,
-  world_07, world_08, world_09, world_10, world_11, world_12 };
+  world_07, world_08, world_09, world_10, world_11, world_12,
+  world_13, world_14, world_15, world_16, world_17, world_18,
+  world_19, world_20, world_21, world_22, world_23, world_24 };
 
 // Map-unlock progress (SPIFFS /flipworld_progress.json). "unlocked" = how many maps
 // are playable (>= 1). Clearing a map unlocks the next; the count never regresses.

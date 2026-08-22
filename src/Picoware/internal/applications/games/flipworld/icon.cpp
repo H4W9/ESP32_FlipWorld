@@ -27,6 +27,8 @@ namespace FlipWorld
         ICON_ID_ROCK_LARGE,           // Large rock
         ICON_ID_ROCK_MEDIUM,          // Medium rock
         ICON_ID_ROCK_SMALL,           // Small rock
+        ICON_ID_WATER,                // Solid water fill tile (for lakes)
+        ICON_ID_ICE,                  // Solid ice tile (walkable, slippery)
     } IconID;
 
     typedef struct
@@ -80,6 +82,10 @@ namespace FlipWorld
             return {ICON_ID_LAKE_TOP_RIGHT, icon_lake_top_right_24x22px, Vector(24, 22)};
         if (strcmp(name, "house") == 0)
             return {ICON_ID_HOUSE, icon_house_48x32px, Vector(48, 32)};
+        if (strcmp(name, "water") == 0)
+            return {ICON_ID_WATER, icon_water_40x24px, Vector(40, 24)};
+        if (strcmp(name, "ice") == 0)
+            return {ICON_ID_ICE, icon_water_40x24px, Vector(40, 24)}; // reuse solid tile
 
         return {ICON_ID_NONE, NULL, Vector(0, 0)};
     }
@@ -109,7 +115,9 @@ namespace FlipWorld
     // the level renders in full colour instead of monochrome black-on-white.
     static uint16_t icon_ink_color(const char *name)
     {
-        if (strstr(name, "lake") != NULL)
+        if (strcmp(name, "ice") == 0)
+            return 0xE77F; // near-white pale ice (blue player still stands out)
+        if (strstr(name, "lake") != NULL || strcmp(name, "water") == 0)
             return 0x041F; // water blue
         if (strstr(name, "rock") != NULL)
             return 0x8410; // stone grey
@@ -144,6 +152,9 @@ namespace FlipWorld
         // via ImageManager. Sharing was a use-after-free: ~Entity deletes sprite,
         // freeing the cached image, and the next map (campaign / replay) would then
         // reuse the dangling ImageManager cache pointer and crash.
+        // Ice is walkable (the player skates on it) — no collision callback; every
+        // other icon blocks the player.
+        void (*collisionCb)(Entity *, Entity *, Game *) = (strcmp(name, "ice") == 0) ? nullptr : icon_collision;
         Entity *newEntity = new Entity(
             level->getBoard(),
             "icon",
@@ -157,7 +168,7 @@ namespace FlipWorld
             NULL,           // stop
             NULL,           // update
             NULL,           // render
-            icon_collision, // collision
+            collisionCb,    // collision (null for walkable ice)
             true,           // is 8-bit
             true            // is progmem
         );

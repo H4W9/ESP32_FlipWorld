@@ -451,32 +451,62 @@ namespace FlipWorld
         // CORNER is in two zones at once → diagonal (e.g. bottom+left = down-left).
         // The central rectangle (no edge) is the attack zone (its original size).
         const float STEP = 6;
+        float mx = 0, my = 0;
+        bool centreTap = false;
         TouchInput *touch = game->input_manager ? game->input_manager->getTouch() : nullptr;
         if (touch && touch->isPressed())
         {
             float w = game->size.x, h = game->size.y;
             float px = touch->x(), py = touch->y();
-            float mx = 0, my = 0;
             if (py < h / 5) my -= 1;          // top edge    → up
             else if (py > h * 4 / 5) my += 1; // bottom edge → down
             if (px < w / 4) mx -= 1;          // left edge   → left
             else if (px > w * 3 / 4) mx += 1; // right edge  → right
+            if (mx == 0 && my == 0) centreTap = true; // central rectangle
+        }
 
+        // The Frozen Lake map is slippery: input accelerates a carried velocity and
+        // friction lets the player glide to a stop, instead of moving instantly.
+        bool icy = game->current_level && strcmp(game->current_level->name, "Frozen Lake") == 0;
+        if (icy)
+        {
+            const float accel = 1.6f, friction = 0.90f;
+            if (mx != 0 || my != 0)
+            {
+                float mag = sqrtf(mx * mx + my * my);
+                self->slide_vx += (mx / mag) * accel;
+                self->slide_vy += (my / mag) * accel;
+            }
+            self->slide_vx *= friction;
+            self->slide_vy *= friction;
+            float sp = sqrtf(self->slide_vx * self->slide_vx + self->slide_vy * self->slide_vy);
+            if (sp > STEP) { self->slide_vx = self->slide_vx / sp * STEP; self->slide_vy = self->slide_vy / sp * STEP; }
+            else if (sp < 0.05f) { self->slide_vx = 0; self->slide_vy = 0; }
+            newPos.x += self->slide_vx;
+            newPos.y += self->slide_vy;
+        }
+        else
+        {
+            self->slide_vx = 0;
+            self->slide_vy = 0;
             if (mx != 0 || my != 0)
             {
                 float mag = sqrtf(mx * mx + my * my); // normalise so diagonals aren't faster
                 newPos.x += (mx / mag) * STEP;
                 newPos.y += (my / mag) * STEP;
-                if (mx < 0) { self->direction = ENTITY_LEFT;  last_button = BUTTON_LEFT; }
-                else if (mx > 0) { self->direction = ENTITY_RIGHT; last_button = BUTTON_RIGHT; }
-                else if (my < 0) { self->direction = ENTITY_UP; last_button = BUTTON_UP; }
-                else { self->direction = ENTITY_DOWN; last_button = BUTTON_DOWN; }
-            }
-            else
-            {
-                last_button = BUTTON_CENTER; // central rectangle = attack
             }
         }
+
+        // Facing follows actual motion (velocity on ice, input otherwise); a centre
+        // tap is the attack.
+        float fvx = icy ? self->slide_vx : mx;
+        float fvy = icy ? self->slide_vy : my;
+        if (fabsf(fvx) > 0.05f || fabsf(fvy) > 0.05f)
+        {
+            if (fabsf(fvx) >= fabsf(fvy)) { self->direction = fvx < 0 ? ENTITY_LEFT : ENTITY_RIGHT; last_button = fvx < 0 ? BUTTON_LEFT : BUTTON_RIGHT; }
+            else { self->direction = fvy < 0 ? ENTITY_UP : ENTITY_DOWN; last_button = fvy < 0 ? BUTTON_UP : BUTTON_DOWN; }
+        }
+        if (centreTap) last_button = BUTTON_CENTER;
 
         // reset input
         game->input = -1;

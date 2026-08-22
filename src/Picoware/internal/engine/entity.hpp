@@ -67,6 +67,10 @@ namespace Picoware
         // sprite is blitted (see Level::render / Draw::imageMaskPGM). 0xFFFF (white)
         // is the neutral default; the FlipWorld spawn code overrides it per entity.
         uint16_t ink_color = 0xFFFF;
+        // FlipWorld: carried velocity for slippery surfaces (ice). Only the player
+        // uses these; they glide the player on the Frozen Lake map.
+        float slide_vx = 0;
+        float slide_vy = 0;
 
         // 3D Sprite properties
         Sprite3D *sprite_3d;         // 3D sprite representation (can be null for 2D entities)
