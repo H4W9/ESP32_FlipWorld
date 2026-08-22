@@ -525,15 +525,24 @@ namespace FlipWorld
         // Store the current camera position before updating
         game->old_pos = game->pos;
 
-        // Camera follows the player horizontally only; it is LOCKED vertically so the
-        // map never scrolls up/down. The fixed y aligns the BOTTOM of the map with the
-        // bottom of the display (camera_y = world height - screen height).
-        float camera_x = self->position.x - (game->size.x / 2);
+        // Camera follows the player, centring on them and clamping to the map bounds.
         float max_cam_x = game->current_level->size.x - game->size.x;
         if (max_cam_x < 0) max_cam_x = 0;
-        camera_x = constrain(camera_x, 0, max_cam_x);
+        float camera_x = constrain(self->position.x - game->size.x / 2, 0, max_cam_x);
 
-        float camera_y = game->current_level->size.y - game->size.y; // bottom-aligned, fixed
+        // Vertical: if the map is TALLER than the viewport (e.g. the V8's 320px panel
+        // vs a 384px map), follow the player up/down smoothly, exactly like the
+        // horizontal axis. If the map is shorter than the viewport (e.g. the Pancake's
+        // 480px panel), there's nothing to scroll — lock the camera so the map's bottom
+        // aligns with the display bottom (camera_y = map height - screen height, which
+        // is negative and never jumps).
+        float max_cam_y = game->current_level->size.y - game->size.y;
+        float camera_y;
+        if (max_cam_y <= 0)
+            camera_y = max_cam_y; // map fits vertically → fixed, bottom-aligned (Pancake)
+        else
+            camera_y = constrain(self->position.y - game->size.y / 2, 0, max_cam_y); // follow (V8)
+
         game->pos = Vector(camera_x, camera_y);
 
         // (Facing sprite is chosen at render time in Level::render, into a local, so
