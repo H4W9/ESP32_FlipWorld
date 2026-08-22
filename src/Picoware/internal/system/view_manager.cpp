@@ -32,10 +32,12 @@ namespace Picoware
             foregroundColor = TFT_WHITE;
         }
 
-        // Pancake: render directly to the panel (no 8-bit sprite double buffer) so
-        // Picoware widgets and the sketch's raw-TFT screens (menu, WiFi, keyboard)
-        // share one full-colour render path.
-        this->draw = new Draw(board, false, false);
+        // The shell's screens (menu, WiFi, keyboard) render straight to the panel via
+        // the raw TFT_eSPI (getTFT()), so they're unaffected by this. FlipWorld, though,
+        // renders through the Draw and needs a 16-bit off-screen canvas (double buffer)
+        // so its animated frames don't flicker or smear — it clears the canvas, draws
+        // the world, then swap()s it to the panel in one push (like the Flipper build).
+        this->draw = new Draw(board, false, true);
         this->inputManager = new InputManager(board);
         this->keyboard = new Keyboard(this->draw, this->inputManager, foregroundColor, backgroundColor, TFT_BLUE);
         this->keyboard->setSaveCallback([this](const String &response)

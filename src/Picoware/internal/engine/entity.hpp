@@ -59,7 +59,9 @@ namespace Picoware
         Image *sprite_left;            // The sprite to switch to when facing left.
         Image *sprite_right;           // The sprite to switch to when facing right.
         bool is_active;                // Indicates if the entity is active.
-        bool is_visible;               // Indicates if the entity is visible (for rendering)
+        bool is_visible = true;        // Indicates if the entity is visible (for rendering).
+                                       // (Never set by the ctors upstream — defaulted true so
+                                       // entities aren't culled by uninitialised garbage.)
         EntityType type;               // Type of the entity
         // FlipWorld colour port: the ink colour used when this entity's 1-bit mask
         // sprite is blitted (see Level::render / Draw::imageMaskPGM). 0xFFFF (white)

@@ -11,6 +11,22 @@ namespace FlipWorld
 #define ENTITY_DOWN Vector(0, 1)
 #define ENTITY_LEFT Vector(-1, 0)
 #define ENTITY_RIGHT Vector(1, 0)
+
+    // Name shown floating above the player (set to the signed-in username by the
+    // launcher; defaults to "Player" for offline/guest play).
+    static char fw_player_name[24] = "Player";
+    void set_player_name(const char *name)
+    {
+        if (name == nullptr || name[0] == '\0')
+        {
+            strncpy(fw_player_name, "Player", sizeof(fw_player_name) - 1);
+        }
+        else
+        {
+            strncpy(fw_player_name, name, sizeof(fw_player_name) - 1);
+        }
+        fw_player_name[sizeof(fw_player_name) - 1] = '\0';
+    }
     typedef struct
     {
         const char *name;
@@ -532,7 +548,7 @@ namespace FlipWorld
 
     static void player_render(Entity *self, Draw *draw, Game *game)
     {
-        draw_username(game, self->position, "Player"); // draw the username at the new position
+        draw_username(game, self->position, fw_player_name); // draw the username at the new position
         draw_user_stats(self, Vector(5, 210), game);   // draw the user stats at the new position
     }
 
@@ -547,7 +563,7 @@ namespace FlipWorld
         {
             // Create the player entity
             Entity *player = new Entity(level->getBoard(), "Player", ENTITY_PLAYER, position, player_left.size, player_left.data, player_left.data, player_right.data, NULL, NULL, player_update, player_render, NULL, true, true);
-            player->ink_color = 0xFFFF; // FlipWorld colour port: white hero silhouette
+            player->ink_color = 0x07FF; // FlipWorld colour port: cyan hero silhouette
             player->is_player = true;   // shared across levels; Level::clear must not delete it
             player->level = 1;
             player->health = 100;

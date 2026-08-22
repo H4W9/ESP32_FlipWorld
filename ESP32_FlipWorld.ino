@@ -1253,15 +1253,17 @@ static void flipWorldStatsSave(Level *level) {
 // Controls splash — shown until the player taps (or a 15 s timeout).
 static void flipWorldIntro() {
   tft->fillScreen(COL_BG);
-  drawHeader("FlipWorld", false);
+  drawHeader("How to Play", false);
   tft->setTextDatum(MC_DATUM);
   tft->setTextColor(COL_FG, COL_BG);
   int cy = SCRH / 2;
-  tft->drawString("Hold edges to move",   SCRW / 2, cy - 34, 2);
-  tft->drawString("Hold centre to attack", SCRW / 2, cy - 12, 2);
-  tft->drawString("Back button to exit",  SCRW / 2, cy + 10, 2);
+  tft->drawString("Hold a screen edge to walk",  SCRW / 2, cy - 44, 2);
+  tft->drawString("Hold the centre to attack",   SCRW / 2, cy - 24, 2);
+  tft->drawString("Clear a world of foes",       SCRW / 2, cy - 4,  2);
+  tft->drawString("to reach the next one",       SCRW / 2, cy + 12, 2);
+  tft->drawString("Tap < Back to quit",          SCRW / 2, cy + 36, 2);
   tft->setTextColor(COL_ACCENT, COL_BG);
-  tft->drawString("Tap to begin",         SCRW / 2, cy + 44, 4);
+  tft->drawString("Tap to begin",                SCRW / 2, cy + 66, 4);
   tft->setTextDatum(TL_DATUM);
 
   InputManager *im = vm->getInputManager();
@@ -1311,6 +1313,20 @@ static void fwWorldBanner(int idx) {
   delay(1200);
 }
 
+// In-game header, drawn onto the off-screen canvas each frame (so it's part of the
+// single swap() push — no flicker, never fought over by the game). A tap in the
+// top-left "< Back" box (see backTapped) exits.
+static void fwCanvasHeader(TFT_eSprite *g, const char *worldName) {
+  if (!g) return;
+  g->fillRect(0, 0, SCRW, HDRH, COL_ACCENT);
+  g->setTextColor(COL_FG, COL_ACCENT);
+  g->setTextDatum(ML_DATUM);
+  g->drawString("< Back", 6, HDRH / 2, 2);
+  g->setTextDatum(MC_DATUM);
+  g->drawString(worldName, SCRW / 2, HDRH / 2, 2);
+  g->setTextDatum(TL_DATUM);
+}
+
 static void playFlipWorld() {
   flipWorldIntro();
 
@@ -1339,8 +1355,9 @@ static void playFlipWorld() {
   }
 
   // One player, shared across every world (is_player keeps Level::clear from
-  // deleting it when a level is torn down).
+  // deleting it when a level is torn down). Its floating label is the login name.
   FlipWorld::player_spawn(worlds[0], "sword", Vector(384, 192));
+  FlipWorld::set_player_name(credGet("user").c_str());   // "" → "Player" (offline/guest)
   Entity *player = fwFindPlayer(worlds[0]);
   if (player) {
     worlds[1]->entity_add(player);
@@ -1355,26 +1372,32 @@ static void playFlipWorld() {
 
   GameEngine *engine = new GameEngine(game, 60);
 
-  InputManager *im = vm->getInputManager();
-  TouchInput   *t  = im->getTouch();
+  // The game renders through the Draw's off-screen canvas (double buffer): each
+  // frame we clear it, draw the world + header into it, then swap() it to the panel
+  // in one push — so there's no flicker, no smearing, and the header is never
+  // fought over. (Matches the Flipper build's canvas + render loop.)
+  Draw         *draw   = vm->getDraw();
+  TFT_eSprite  *canvas = draw->display->getCanvas();
+  InputManager *im     = vm->getInputManager();
+  TouchInput   *t      = im->getTouch();
   int  worldIdx = 0;
   bool exiting   = false;
   fwWorldBanner(0);
-  drawHeader(FW_WORLD_NAMES[worldIdx], true);
   while (!exiting) {
     im->run();
 
-    // Header Back button exits (checked before the frame so the tap doesn't also
-    // move the player up). Only a tap inside the top-left back box counts.
+    // Header Back button exits (checked first so the tap doesn't also move the
+    // player). Only a tap inside the top-left "< Back" box counts.
     if (t && t->isPressed() && backTapped(t->x(), t->y())) {
       exiting = true;
       break;
     }
 
-    // Wipe the play area (below the header) so nothing smears as the camera pans.
-    tft->fillRect(0, HDRH, SCRW, SCRH - HDRH, TFT_BLACK);
+    // One clean frame: clear the canvas, draw the world + header into it, push it.
+    draw->clear(Vector(0, 0), Vector(SCRW, SCRH), FW_WORLD_BG);
     engine->runAsync(false);
-    drawHeader(FW_WORLD_NAMES[worldIdx], true);
+    fwCanvasHeader(canvas, FW_WORLD_NAMES[worldIdx]);
+    draw->swap();
 
     // Cleared every enemy in this world → advance to the next (or win).
     if (fwLivingEnemies(worlds[worldIdx]) == 0) {
@@ -1384,7 +1407,6 @@ static void playFlipWorld() {
         game->pos = Vector(384, 192); game->old_pos = game->pos;
         game->level_switch(worldIdx);
         fwWorldBanner(worldIdx);
-        drawHeader(FW_WORLD_NAMES[worldIdx], true);
       } else {
         tft->fillScreen(COL_BG);
         drawHeader("FlipWorld", true);
@@ -1398,7 +1420,7 @@ static void playFlipWorld() {
       }
     }
 
-    delay(1000 / 60);
+    delay(5);   // small yield; the swap() push already paces the frame rate
   }
 
   flipWorldStatsSave(worlds[0]);   // persist progression (shared player, any level works)

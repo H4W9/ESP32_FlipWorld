@@ -12,4 +12,5 @@ namespace FlipWorld
     void game_stop();
     void enemy_spawn_json(Level *level, const char *json);
     void player_spawn(Level *level, const char *name, Vector position);
+    void set_player_name(const char *name); // name floated above the player
 }
