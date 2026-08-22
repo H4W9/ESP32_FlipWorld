@@ -254,16 +254,20 @@ namespace Picoware
                     continue; // Skip rendering if entity is not visible
                 }
 
-                // Keep the displayed sprite in sync with horizontal facing (left/right
-                // variants). Vertical facing keeps the last horizontal sprite. This was
-                // previously done inside each entity's render callback.
+                // Pick which sprite to draw based on horizontal facing (left/right
+                // variants), into a LOCAL — we must NOT reassign ent->sprite, because
+                // ent->sprite / sprite_left / sprite_right are three separate Images the
+                // entity owns and frees in ~Entity. Aliasing ent->sprite to a left/right
+                // image would make ~Entity double-free it (and leak the original) — which
+                // crashed on the next campaign/replay map teardown.
+                Image *drawSprite = ent->sprite;
                 if (ent->direction.x < 0 && ent->sprite_left != nullptr)
-                    ent->sprite = ent->sprite_left;
+                    drawSprite = ent->sprite_left;
                 else if (ent->direction.x > 0 && ent->sprite_right != nullptr)
-                    ent->sprite = ent->sprite_right;
+                    drawSprite = ent->sprite_right;
 
                 // Only draw the 2D sprite if it exists
-                if (ent->sprite != nullptr)
+                if (drawSprite != nullptr)
                 {
                     // FlipWorld colour port: key the blit off the SPRITE's format, not the
                     // display's. FlipWorld sprites are 1-byte "8-bit" Flipper masks (0x00 ink
@@ -271,13 +275,13 @@ namespace Picoware
                     // (their RGB565 buffer is null). Draw the mask in the entity's ink colour
                     // with transparent paper so the coloured world shows through; genuine
                     // 16-bit buffer sprites still take the RGB565 path.
-                    if (ent->sprite->is_8bit)
+                    if (drawSprite->is_8bit)
                     {
-                        game->draw->imageMaskPGM(Vector(ent->position.x - game->pos.x, ent->position.y - game->pos.y), ent->sprite->getData(), ent->sprite->size, ent->ink_color);
+                        game->draw->imageMaskPGM(Vector(ent->position.x - game->pos.x, ent->position.y - game->pos.y), drawSprite->getData(), drawSprite->size, ent->ink_color);
                     }
                     else
                     {
-                        game->draw->image(Vector(ent->position.x - game->pos.x, ent->position.y - game->pos.y), ent->sprite);
+                        game->draw->image(Vector(ent->position.x - game->pos.x, ent->position.y - game->pos.y), drawSprite);
                     }
                 }
 

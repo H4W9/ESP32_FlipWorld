@@ -446,35 +446,37 @@ namespace FlipWorld
         Vector oldPos = self->position;
         Vector newPos = oldPos;
 
-        // Move according to input (step per frame — larger = faster movement)
+        // Move as a vector toward the current touch point (relative to screen centre),
+        // giving full 360° movement including diagonals. A central deadzone = attack.
         const float STEP = 6;
-        if (game->input == BUTTON_UP)
+        TouchInput *touch = game->input_manager ? game->input_manager->getTouch() : nullptr;
+        if (touch && touch->isPressed())
         {
-            newPos.y -= STEP;
-            self->direction = ENTITY_UP;
-            last_button = BUTTON_UP;
-        }
-        else if (game->input == BUTTON_DOWN)
-        {
-            newPos.y += STEP;
-            self->direction = ENTITY_DOWN;
-            last_button = BUTTON_DOWN;
-        }
-        else if (game->input == BUTTON_LEFT)
-        {
-            newPos.x -= STEP;
-            self->direction = ENTITY_LEFT;
-            last_button = BUTTON_LEFT;
-        }
-        else if (game->input == BUTTON_RIGHT)
-        {
-            newPos.x += STEP;
-            self->direction = ENTITY_RIGHT;
-            last_button = BUTTON_RIGHT;
-        }
-        else if (game->input == BUTTON_CENTER)
-        {
-            last_button = BUTTON_CENTER;
+            float cx = game->size.x / 2.0f;
+            float cy = game->size.y / 2.0f;
+            float dx = (float)touch->x() - cx;
+            float dy = (float)touch->y() - cy;
+            float mag = sqrtf(dx * dx + dy * dy);
+            const float deadzone = 30; // central press = attack, not move
+            if (mag > deadzone)
+            {
+                newPos.x += (dx / mag) * STEP; // unit vector → constant speed, any angle
+                newPos.y += (dy / mag) * STEP;
+                if (fabsf(dx) >= fabsf(dy))
+                {
+                    self->direction = dx < 0 ? ENTITY_LEFT : ENTITY_RIGHT;
+                    last_button = dx < 0 ? BUTTON_LEFT : BUTTON_RIGHT;
+                }
+                else
+                {
+                    self->direction = dy < 0 ? ENTITY_UP : ENTITY_DOWN;
+                    last_button = dy < 0 ? BUTTON_UP : BUTTON_DOWN;
+                }
+            }
+            else
+            {
+                last_button = BUTTON_CENTER; // centre = attack
+            }
         }
 
         // reset input
@@ -505,15 +507,9 @@ namespace FlipWorld
         float camera_y = game->current_level->size.y - game->size.y; // bottom-aligned, fixed
         game->pos = Vector(camera_x, camera_y);
 
-        // update player sprite based on direction
-        if (self->direction == ENTITY_LEFT)
-        {
-            self->sprite = self->sprite_left;
-        }
-        else if (self->direction == ENTITY_RIGHT)
-        {
-            self->sprite = self->sprite_right;
-        }
+        // (Facing sprite is chosen at render time in Level::render, into a local, so
+        // ent->sprite / sprite_left / sprite_right stay distinct and ~Entity can free
+        // each exactly once — reassigning here would double-free on teardown.)
     }
 
     // Draw the user stats (health, xp, and level) as a fixed HUD.

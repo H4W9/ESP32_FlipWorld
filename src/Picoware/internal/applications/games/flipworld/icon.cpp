@@ -139,14 +139,11 @@ namespace FlipWorld
             return;
         }
 
-        // Retrieve shared Image instance
-        Image *sharedImage = ImageManager::getInstance().getImage(name, icon.data, icon.size, true, true, level->getBoard());
-        if (sharedImage == nullptr)
-        {
-            return;
-        }
-
-        // Add the icon to the level
+        // The Entity ctor builds its own Image from the PROGMEM icon data (referenced,
+        // not copied) which it owns and frees on teardown — so we do NOT share Images
+        // via ImageManager. Sharing was a use-after-free: ~Entity deletes sprite,
+        // freeing the cached image, and the next map (campaign / replay) would then
+        // reuse the dangling ImageManager cache pointer and crash.
         Entity *newEntity = new Entity(
             level->getBoard(),
             "icon",
@@ -164,8 +161,6 @@ namespace FlipWorld
             true,           // is 8-bit
             true            // is progmem
         );
-        // Assign the shared Image to the entity
-        newEntity->sprite = sharedImage;
         newEntity->ink_color = icon_ink_color(name); // FlipWorld colour port
         if (strcmp(name, "flower") == 0)
         {
