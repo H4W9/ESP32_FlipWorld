@@ -54,6 +54,6 @@
 // Section 4. SPI speed
 // ##################################################################################
 
-#define SPI_FREQUENCY       27000000
+#define SPI_FREQUENCY       40000000
 #define SPI_READ_FREQUENCY  20000000
 #define SPI_TOUCH_FREQUENCY  2500000

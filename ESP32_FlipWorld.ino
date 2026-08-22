@@ -1220,7 +1220,7 @@ static void flipWorldStatsApply(Level *level) {
   FWStats s; s.valid = false;
   if (fwOnline()) {
     tft->setTextDatum(MC_DATUM);
-    tft->setTextColor(COL_ACCENT, COL_BG);
+    tft->setTextColor(COL_FG, COL_BG);
     tft->drawString("Syncing stats...", SCRW / 2, SCRH - 20, 2);
     tft->setTextDatum(TL_DATUM);
     if (fwStatsFetchOnline(s) && s.valid) fwStatsWriteSD(s);   // online is authoritative
@@ -1262,7 +1262,7 @@ static void flipWorldIntro() {
   tft->drawString("Clear a world of foes",       SCRW / 2, cy - 4,  2);
   tft->drawString("to reach the next one",       SCRW / 2, cy + 12, 2);
   tft->drawString("Tap < Back to quit",          SCRW / 2, cy + 36, 2);
-  tft->setTextColor(COL_ACCENT, COL_BG);
+  tft->setTextColor(COL_FG, COL_BG);
   tft->drawString("Tap to begin",                SCRW / 2, cy + 66, 4);
   tft->setTextDatum(TL_DATUM);
 
@@ -1307,7 +1307,7 @@ static void fwWorldBanner(int idx) {
   tft->setTextColor(COL_DIM, COL_BG);
   char sub[24]; snprintf(sub, sizeof(sub), "World %d of %d", idx + 1, FW_WORLD_COUNT);
   tft->drawString(sub, SCRW / 2, SCRH / 2 - 16, 2);
-  tft->setTextColor(COL_ACCENT, COL_BG);
+  tft->setTextColor(COL_FG, COL_BG);
   tft->drawString(FW_WORLD_NAMES[idx], SCRW / 2, SCRH / 2 + 12, 4);
   tft->setTextDatum(TL_DATUM);
   delay(1200);
@@ -1411,7 +1411,7 @@ static void playFlipWorld() {
         tft->fillScreen(COL_BG);
         drawHeader("FlipWorld", true);
         tft->setTextDatum(MC_DATUM);
-        tft->setTextColor(COL_ACCENT, COL_BG);
+        tft->setTextColor(COL_FG, COL_BG);
         tft->drawString("All worlds cleared!", SCRW / 2, SCRH / 2, 4);
         tft->setTextDatum(TL_DATUM);
         delay(2500);
@@ -1420,7 +1420,7 @@ static void playFlipWorld() {
       }
     }
 
-    delay(5);   // small yield; the swap() push already paces the frame rate
+    delay(1);   // minimal yield (WDT); the swap() push already paces the frame rate
   }
 
   flipWorldStatsSave(worlds[0]);   // persist progression (shared player, any level works)

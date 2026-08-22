@@ -172,20 +172,24 @@ namespace FlipWorld
         }
     }
 
-    static void draw_username(Game *game, Vector pos, const char *username)
+    // Draw a label (name / health) above an entity. yOffset lifts it above the
+    // sprite; the player uses a larger offset so its name doesn't cover a nearby
+    // enemy's health readout while attacking.
+    static void draw_username(Game *game, Vector pos, const char *username, int yOffset = 10, uint16_t color = TFT_RED)
     {
-        // skip if drawing the username is out of the screen
+        float sx = pos.x - game->pos.x - (strlen(username) * 2);
+        float sy = pos.y - game->pos.y - yOffset;
+
+        // skip if drawing the label is off-screen
         if (pos.x - game->pos.x - (strlen(username) * 2 + 8) < 0 || pos.x - game->pos.x + (strlen(username) * 2 + 8) > game->size.x ||
-            pos.y - game->pos.y - 10 < 0 || pos.y - game->pos.y > game->size.y)
+            sy < 0 || sy > game->size.y)
         {
             return;
         }
 
-        // draw box around the username
-        game->draw->display->fillRect(pos.x - game->pos.x - (strlen(username) * 2), pos.y - game->pos.y - 10, strlen(username) * 5 + 4, 10, TFT_BLACK);
-
-        // draw username over player's head
-        game->draw->text(Vector(pos.x - game->pos.x - (strlen(username) * 2), pos.y - game->pos.y - 10), username, TFT_RED);
+        // black backing box, then the text on top
+        game->draw->display->fillRect(sx, sy, strlen(username) * 5 + 4, 10, TFT_BLACK);
+        game->draw->text(Vector(sx, sy), username, color);
     }
 
     static void enemy_render(Entity *self, Draw *draw, Game *game)
@@ -204,20 +208,9 @@ namespace FlipWorld
             return;
         }
 
-        // Choose sprite based on direction
-        if (self->direction == ENTITY_LEFT)
-        {
-            self->sprite = self->sprite_left;
-            self->size = self->sprite_left->size;
-        }
-        else if (self->direction == ENTITY_RIGHT)
-        {
-            self->sprite = self->sprite_right;
-            self->size = self->sprite_right->size;
-        }
-
-        // draw health of enemy
-        draw_username(game, self->position, health_str);
+        // draw enemy health just above the enemy (sprite facing is handled in the
+        // level's render pass now, so this overlay can run after all sprites).
+        draw_username(game, self->position, health_str, 12);
     }
 
     int last_button = -1;
@@ -453,28 +446,29 @@ namespace FlipWorld
         Vector oldPos = self->position;
         Vector newPos = oldPos;
 
-        // Move according to input
+        // Move according to input (step per frame — larger = faster movement)
+        const float STEP = 6;
         if (game->input == BUTTON_UP)
         {
-            newPos.y -= 5;
+            newPos.y -= STEP;
             self->direction = ENTITY_UP;
             last_button = BUTTON_UP;
         }
         else if (game->input == BUTTON_DOWN)
         {
-            newPos.y += 5;
+            newPos.y += STEP;
             self->direction = ENTITY_DOWN;
             last_button = BUTTON_DOWN;
         }
         else if (game->input == BUTTON_LEFT)
         {
-            newPos.x -= 5;
+            newPos.x -= STEP;
             self->direction = ENTITY_LEFT;
             last_button = BUTTON_LEFT;
         }
         else if (game->input == BUTTON_RIGHT)
         {
-            newPos.x += 5;
+            newPos.x += STEP;
             self->direction = ENTITY_RIGHT;
             last_button = BUTTON_RIGHT;
         }
@@ -500,16 +494,16 @@ namespace FlipWorld
         // Store the current camera position before updating
         game->old_pos = game->pos;
 
-        // Update camera position to center the player
+        // Camera follows the player horizontally only; it is LOCKED vertically so the
+        // map never scrolls up/down (the world is 384 tall — shorter than the panel —
+        // and a vertical clamp made it jump when the player crossed the midpoint).
         float camera_x = self->position.x - (game->size.x / 2);
-        float camera_y = self->position.y - (game->size.y / 2);
+        float max_cam_x = game->current_level->size.x - game->size.x;
+        if (max_cam_x < 0) max_cam_x = 0;
+        camera_x = constrain(camera_x, 0, max_cam_x);
 
-        // Clamp camera position to the world boundaries
-        camera_x = constrain(camera_x, 0, game->current_level->size.x - game->size.x);
-        camera_y = constrain(camera_y, 0, game->current_level->size.y - game->size.y);
-
-        // Set the new camera position
-        game->pos = Vector(camera_x, camera_y);
+        // Set the new camera position (y fixed at 0 → no vertical scroll)
+        game->pos = Vector(camera_x, 0);
 
         // update player sprite based on direction
         if (self->direction == ENTITY_LEFT)
@@ -522,11 +516,13 @@ namespace FlipWorld
         }
     }
 
-    // Draw the user stats (health, xp, and level)
+    // Draw the user stats (health, xp, and level) as a fixed HUD.
     static void draw_user_stats(Entity *self, Vector pos, Game *game)
     {
-        // first draw a white rectangle to make the text more readable
-        game->draw->display->fillRect(pos.x - 2, pos.y - 5, 48, 32, TFT_BLACK);
+        const int ROW = 18; // spacing between rows
+
+        // black backing box so the text stays readable over the world
+        game->draw->display->fillRect(pos.x - 2, pos.y - 3, 60, ROW * 3 + 6, TFT_BLACK);
 
         char health[32];
         char xp[32];
@@ -540,16 +536,20 @@ namespace FlipWorld
         else
             snprintf(xp, sizeof(xp), "XP : %.0fK", (double)self->xp / 1000);
 
-        // draw items
-        game->draw->text(Vector(pos.x, pos.y), health, TFT_RED);
-        game->draw->text(Vector(pos.x, pos.y + 9), xp, TFT_RED);
-        game->draw->text(Vector(pos.x, pos.y + 18), level, TFT_RED);
+        // draw rows with generous spacing (green HUD — distinct from red/white labels)
+        const uint16_t STAT_COL = 0x07E0; // green
+        game->draw->text(Vector(pos.x, pos.y), health, STAT_COL);
+        game->draw->text(Vector(pos.x, pos.y + ROW), xp, STAT_COL);
+        game->draw->text(Vector(pos.x, pos.y + ROW * 2), level, STAT_COL);
     }
 
     static void player_render(Entity *self, Draw *draw, Game *game)
     {
-        draw_username(game, self->position, fw_player_name); // draw the username at the new position
-        draw_user_stats(self, Vector(5, 210), game);   // draw the user stats at the new position
+        // Player name floated well above the sprite (28px) so it clears a nearby
+        // enemy's health label while attacking. White so it's distinct from the red
+        // enemy-health labels and the green stat HUD.
+        draw_username(game, self->position, fw_player_name, 28, 0xFFFF);
+        draw_user_stats(self, Vector(5, 34), game);    // fixed HUD at top (below the header)
     }
 
     void player_spawn(Level *level, const char *name, Vector position)
@@ -563,13 +563,13 @@ namespace FlipWorld
         {
             // Create the player entity
             Entity *player = new Entity(level->getBoard(), "Player", ENTITY_PLAYER, position, player_left.size, player_left.data, player_left.data, player_right.data, NULL, NULL, player_update, player_render, NULL, true, true);
-            player->ink_color = 0x07FF; // FlipWorld colour port: cyan hero silhouette
+            player->ink_color = 0x1C9F; // FlipWorld colour port: bright blue hero (DodgerBlue, pops on black)
             player->is_player = true;   // shared across levels; Level::clear must not delete it
             player->level = 1;
             player->health = 100;
             player->max_health = 100;
             player->strength = 10;
-            player->attack_timer = 1;
+            player->attack_timer = 0.2; // short cooldown so tapping/holding centre attacks repeatedly
             player->health_regen = 1;
             level->entity_add(player);
         }

@@ -80,6 +80,6 @@
 // 20 MHz is conservative and reliable for the ESP32-C5 FSPI peripheral.
 // The ILI9341 supports up to 60 MHz writes in practice, but shared bus
 // noise from the SD card can cause issues at higher speeds.
-#define SPI_FREQUENCY       20000000
+#define SPI_FREQUENCY       40000000
 #define SPI_READ_FREQUENCY  20000000
 #define SPI_TOUCH_FREQUENCY  2500000   // XPT2046 max is 2.5 MHz

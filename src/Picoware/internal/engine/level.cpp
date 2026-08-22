@@ -229,6 +229,9 @@ namespace Picoware
             }
         }
 
+        // Pass 1 — clear old positions and draw every sprite. Overlays (name/health
+        // text) are deferred to pass 2 below so they always sit ON TOP of all sprites
+        // (e.g. a nearby player sprite never covers an enemy's health readout).
         for (int i = 0; i < entity_count; i++)
         {
             Entity *ent = entities[i];
@@ -246,12 +249,18 @@ namespace Picoware
                     }
                 }
 
-                ent->render(game->draw, game);
-
                 if (!ent->is_visible)
                 {
                     continue; // Skip rendering if entity is not visible
                 }
+
+                // Keep the displayed sprite in sync with horizontal facing (left/right
+                // variants). Vertical facing keeps the last horizontal sprite. This was
+                // previously done inside each entity's render callback.
+                if (ent->direction.x < 0 && ent->sprite_left != nullptr)
+                    ent->sprite = ent->sprite_left;
+                else if (ent->direction.x > 0 && ent->sprite_right != nullptr)
+                    ent->sprite = ent->sprite_right;
 
                 // Only draw the 2D sprite if it exists
                 if (ent->sprite != nullptr)
@@ -312,6 +321,16 @@ namespace Picoware
                         ent->render3DSprite(game->draw, camera_params->position, camera_params->direction, camera_params->plane, camera_params->height, screen_size);
                     }
                 }
+            }
+        }
+
+        // Pass 2 — overlays (name / health text) drawn on top of every sprite.
+        for (int i = 0; i < entity_count; i++)
+        {
+            Entity *ent = entities[i];
+            if (ent != nullptr && ent->is_active && ent->is_visible)
+            {
+                ent->render(game->draw, game);
             }
         }
 

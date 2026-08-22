@@ -960,17 +960,30 @@ namespace Picoware
         }
         // 1 byte per pixel. transparentValue (0xFF for FlipWorld "paper") is skipped
         // so the coloured world background shows through; every other byte is the
-        // sprite "ink" and is drawn in inkColor. drawPixel() clips to the panel.
-        for (int y = 0; y < size.y; y++)
+        // sprite "ink", drawn in inkColor. We batch each horizontal run of ink into a
+        // single fillRect (1px tall) instead of one drawPixel per pixel — far fewer
+        // draw calls, which matters when the target is a PSRAM sprite. fillRect clips
+        // to the surface, so partially off-screen sprites are handled by the driver.
+        const int w = static_cast<int>(size.x);
+        const int h = static_cast<int>(size.y);
+        const int baseX = static_cast<int>(position.x);
+        const int baseY = static_cast<int>(position.y);
+        for (int y = 0; y < h; y++)
         {
-            for (int x = 0; x < size.x; x++)
+            int x = 0;
+            while (x < w)
             {
-                uint8_t pixel = pgm_read_byte_near(&bitmapPGM[static_cast<int>(y * size.x + x)]);
-                if (pixel == transparentValue)
+                if (pgm_read_byte_near(&bitmapPGM[y * w + x]) == transparentValue)
                 {
+                    x++;
                     continue;
                 }
-                this->drawPixel(Vector(position.x + x, position.y + y), inkColor);
+                int runStart = x;
+                while (x < w && pgm_read_byte_near(&bitmapPGM[y * w + x]) != transparentValue)
+                {
+                    x++;
+                }
+                this->display->fillRect(baseX + runStart, baseY + y, x - runStart, 1, inkColor);
             }
         }
     }
