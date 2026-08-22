@@ -495,15 +495,15 @@ namespace FlipWorld
         game->old_pos = game->pos;
 
         // Camera follows the player horizontally only; it is LOCKED vertically so the
-        // map never scrolls up/down (the world is 384 tall — shorter than the panel —
-        // and a vertical clamp made it jump when the player crossed the midpoint).
+        // map never scrolls up/down. The fixed y aligns the BOTTOM of the map with the
+        // bottom of the display (camera_y = world height - screen height).
         float camera_x = self->position.x - (game->size.x / 2);
         float max_cam_x = game->current_level->size.x - game->size.x;
         if (max_cam_x < 0) max_cam_x = 0;
         camera_x = constrain(camera_x, 0, max_cam_x);
 
-        // Set the new camera position (y fixed at 0 → no vertical scroll)
-        game->pos = Vector(camera_x, 0);
+        float camera_y = game->current_level->size.y - game->size.y; // bottom-aligned, fixed
+        game->pos = Vector(camera_x, camera_y);
 
         // update player sprite based on direction
         if (self->direction == ENTITY_LEFT)

@@ -1213,12 +1213,14 @@ static void fwStatsPushOnline(const FWStats &s) {
   ledOff();
 }
 
-// After player_spawn: load progression (online overwrites SD; else SD) and apply.
-static void flipWorldStatsApply(Level *level) {
+// After player_spawn: load progression and apply. When onlineSync is true and we're
+// online, the server copy is pulled and overwrites SD (authoritative); otherwise the
+// SD copy is used (used for later campaign maps so we don't re-sync every level).
+static void flipWorldStatsApply(Level *level, bool onlineSync = true) {
   Entity *p = fwFindPlayer(level);
   if (!p) return;
   FWStats s; s.valid = false;
-  if (fwOnline()) {
+  if (onlineSync && fwOnline()) {
     tft->setTextDatum(MC_DATUM);
     tft->setTextColor(COL_FG, COL_BG);
     tft->drawString("Syncing stats...", SCRW / 2, SCRH - 20, 2);
@@ -1286,8 +1288,41 @@ static void flipWorldIntro() {
 // one Game and share a single player entity; game->level_switch() moves between
 // them. The reference only switches levels over multiplayer, so for single-player
 // we advance when every enemy in the current world has been defeated.
-static const int   FW_WORLD_COUNT = 3;
-static const char *FW_WORLD_NAMES[FW_WORLD_COUNT] = { "Home Woods", "Rock World", "Forest World" };
+static const int   FW_WORLD_COUNT = 12;
+static const char *FW_WORLD_NAMES[FW_WORLD_COUNT] = {
+  "Home Woods",  "Rock World",  "Forest Glade", "Meadow",
+  "Stronghold",  "Lakeside",    "Boulder Field","Village",
+  "Deep Woods",  "Wasteland",   "Flower Garden","Shadow Keep" };
+static const char *FW_WORLD_JSON[FW_WORLD_COUNT] = {
+  world_01, world_02, world_03, world_04, world_05, world_06,
+  world_07, world_08, world_09, world_10, world_11, world_12 };
+
+// Map-unlock progress (SPIFFS /flipworld_progress.json). "unlocked" = how many maps
+// are playable (>= 1). Clearing a map unlocks the next; the count never regresses.
+static const char *FW_PROGRESS_FILE = "/flipworld_progress.json";
+static int fwUnlockedCount() {
+  File f = SPIFFS.open(FW_PROGRESS_FILE, FILE_READ);
+  if (!f) return 1;
+  JsonDocument d;
+  DeserializationError e = deserializeJson(d, f);
+  f.close();
+  if (e) return 1;
+  int n = d["unlocked"] | 1;
+  if (n < 1) n = 1;
+  if (n > FW_WORLD_COUNT) n = FW_WORLD_COUNT;
+  return n;
+}
+static void fwSetUnlockedCount(int n) {
+  if (n < 1) n = 1;
+  if (n > FW_WORLD_COUNT) n = FW_WORLD_COUNT;
+  if (n <= fwUnlockedCount()) return;   // never regress
+  JsonDocument d;
+  d["unlocked"] = n;
+  File f = SPIFFS.open(FW_PROGRESS_FILE, FILE_WRITE);
+  if (!f) return;
+  serializeJson(d, f);
+  f.close();
+}
 
 // Count enemies still alive (not yet marked ENTITY_DEAD) in a level.
 static int fwLivingEnemies(Level *level) {
@@ -1305,7 +1340,7 @@ static void fwWorldBanner(int idx) {
   drawHeader(FW_WORLD_NAMES[idx], true);
   tft->setTextDatum(MC_DATUM);
   tft->setTextColor(COL_DIM, COL_BG);
-  char sub[24]; snprintf(sub, sizeof(sub), "World %d of %d", idx + 1, FW_WORLD_COUNT);
+  char sub[24]; snprintf(sub, sizeof(sub), "Map %d of %d", idx + 1, FW_WORLD_COUNT);
   tft->drawString(sub, SCRW / 2, SCRH / 2 - 16, 2);
   tft->setTextColor(COL_FG, COL_BG);
   tft->drawString(FW_WORLD_NAMES[idx], SCRW / 2, SCRH / 2 + 12, 4);
@@ -1327,113 +1362,126 @@ static void fwCanvasHeader(TFT_eSprite *g, const char *worldName) {
   g->setTextDatum(TL_DATUM);
 }
 
-static void playFlipWorld() {
+// Centred message screen (used for save/sync + cleared/unlock notices).
+static void fwNotice(const String &line1, const String &line2, uint32_t holdMs) {
+  tft->fillScreen(COL_BG);
+  drawHeader("FlipWorld", false);
+  tft->setTextDatum(MC_DATUM);
+  tft->setTextColor(COL_FG, COL_BG);
+  tft->drawString(line1, SCRW / 2, SCRH / 2 - (line2.length() ? 12 : 0), 2);
+  if (line2.length()) tft->drawString(line2, SCRW / 2, SCRH / 2 + 12, 2);
+  tft->setTextDatum(TL_DATUM);
+  if (holdMs) delay(holdMs);
+}
+
+// Play maps starting at startIndex. In campaign mode, clearing a map advances to the
+// next automatically (carrying progression) until the player exits or beats the last
+// map. In single-map mode (campaign=false) it plays just the one map and returns.
+// Clearing a map always unlocks the next. Stats save to SD (and sync online) on exit.
+static void playMaps(int startIndex, bool campaign) {
+  if (startIndex < 0 || startIndex >= FW_WORLD_COUNT) return;
   flipWorldIntro();
 
-  const char *worldJson[FW_WORLD_COUNT] = { world_home_woods, world_rock_world, world_forest_world };
-
   Board board = vm->getBoard();
-
-  Game *game = new Game(
-      "FlipWorld",
-      Vector(board.width, board.height),
-      vm->getDraw(),
-      vm->getInputManager(),
-      TFT_WHITE,             // fg — used by the in-game text overlays
-      FW_WORLD_BG,           // bg — solid black world
-      CAMERA_FIRST_PERSON,
-      nullptr,
-      FlipWorld::game_stop);
-
-  // Build all three worlds and add them to the game.
-  Level *worlds[FW_WORLD_COUNT];
-  for (int i = 0; i < FW_WORLD_COUNT; i++) {
-    worlds[i] = new Level(FW_WORLD_NAMES[i], Vector(768, 384), game, NULL, NULL);
-    game->level_add(worlds[i]);
-    FlipWorld::icon_spawn_json(worlds[i], worldJson[i]);
-    FlipWorld::enemy_spawn_json(worlds[i], worldJson[i]);
-  }
-
-  // One player, shared across every world (is_player keeps Level::clear from
-  // deleting it when a level is torn down). Its floating label is the login name.
-  FlipWorld::player_spawn(worlds[0], "sword", Vector(384, 192));
-  FlipWorld::set_player_name(credGet("user").c_str());   // "" → "Player" (offline/guest)
-  Entity *player = fwFindPlayer(worlds[0]);
-  if (player) {
-    worlds[1]->entity_add(player);
-    worlds[2]->entity_add(player);
-  }
-
-  flipWorldStatsApply(worlds[0]);   // saved/online progression onto the shared player
-
-  game->pos     = Vector(384, 192);
-  game->old_pos = game->pos;
-  game->level_switch(0);
-
-  GameEngine *engine = new GameEngine(game, 60);
-
-  // The game renders through the Draw's off-screen canvas (double buffer): each
-  // frame we clear it, draw the world + header into it, then swap() it to the panel
-  // in one push — so there's no flicker, no smearing, and the header is never
-  // fought over. (Matches the Flipper build's canvas + render loop.)
   Draw         *draw   = vm->getDraw();
   TFT_eSprite  *canvas = draw->display->getCanvas();
   InputManager *im     = vm->getInputManager();
   TouchInput   *t      = im->getTouch();
-  int  worldIdx = 0;
-  bool exiting   = false;
-  fwWorldBanner(0);
-  while (!exiting) {
-    im->run();
 
-    // Header Back button exits (checked first so the tap doesn't also move the
-    // player). Only a tap inside the top-left "< Back" box counts.
-    if (t && t->isPressed() && backTapped(t->x(), t->y())) {
-      exiting = true;
-      break;
+  int  mapIndex   = startIndex;
+  bool campaignWin = false;
+
+  for (;;) {
+    Game *game = new Game(
+        "FlipWorld", Vector(board.width, board.height),
+        vm->getDraw(), vm->getInputManager(),
+        TFT_WHITE, FW_WORLD_BG, CAMERA_FIRST_PERSON, nullptr, FlipWorld::game_stop);
+
+    Level *level = new Level(FW_WORLD_NAMES[mapIndex], Vector(768, 384), game, NULL, NULL);
+    game->level_add(level);
+    FlipWorld::icon_spawn_json(level, FW_WORLD_JSON[mapIndex]);
+    FlipWorld::enemy_spawn_json(level, FW_WORLD_JSON[mapIndex]);
+
+    FlipWorld::player_spawn(level, "sword", Vector(384, 192));
+    FlipWorld::set_player_name(credGet("user").c_str());   // "" → "Player" (offline/guest)
+    Entity *player = fwFindPlayer(level);
+
+    // Pull online stats only for the first map of the run; later campaign maps read
+    // the SD copy the previous map just wrote (progression carries, no re-sync/lag).
+    flipWorldStatsApply(level, mapIndex == startIndex);
+
+    game->pos     = Vector(384, 192);
+    game->old_pos = game->pos;
+    game->level_switch(0);
+
+    GameEngine *engine = new GameEngine(game, 60);
+
+    // Double-buffered render loop: clear canvas → draw world + header → swap.
+    bool exiting = false, cleared = false;
+    fwWorldBanner(mapIndex);
+    while (!exiting) {
+      im->run();
+      if (t && t->isPressed() && backTapped(t->x(), t->y())) { exiting = true; break; }
+      draw->clear(Vector(0, 0), Vector(SCRW, SCRH), FW_WORLD_BG);
+      engine->runAsync(false);
+      fwCanvasHeader(canvas, FW_WORLD_NAMES[mapIndex]);
+      draw->swap();
+      if (fwLivingEnemies(level) == 0) { cleared = true; exiting = true; break; }
+      delay(1);   // minimal yield (WDT); the swap() push already paces the frame rate
     }
 
-    // One clean frame: clear the canvas, draw the world + header into it, push it.
-    draw->clear(Vector(0, 0), Vector(SCRW, SCRH), FW_WORLD_BG);
-    engine->runAsync(false);
-    fwCanvasHeader(canvas, FW_WORLD_NAMES[worldIdx]);
-    draw->swap();
+    // Persist progression to SD (+ push online if signed in) before teardown.
+    flipWorldStatsSave(level);
+    if (cleared) fwSetUnlockedCount(mapIndex + 2);   // unlock the next map
 
-    // Cleared every enemy in this world → advance to the next (or win).
-    if (fwLivingEnemies(worlds[worldIdx]) == 0) {
-      if (worldIdx + 1 < FW_WORLD_COUNT) {
-        worldIdx++;
-        if (player) { player->position = Vector(384, 192); player->old_position = player->position; }
-        game->pos = Vector(384, 192); game->old_pos = game->pos;
-        game->level_switch(worldIdx);
-        fwWorldBanner(worldIdx);
-      } else {
-        tft->fillScreen(COL_BG);
-        drawHeader("FlipWorld", true);
-        tft->setTextDatum(MC_DATUM);
-        tft->setTextColor(COL_FG, COL_BG);
-        tft->drawString("All worlds cleared!", SCRW / 2, SCRH / 2, 4);
-        tft->setTextDatum(TL_DATUM);
-        delay(2500);
-        exiting = true;
-        break;
-      }
+    engine->stop();
+    delete engine;
+    if (player) delete player;   // Level::clear skipped is_player; free it here
+
+    // Advance in campaign, else finish this run.
+    if (cleared && campaign && mapIndex + 1 < FW_WORLD_COUNT) {
+      fwNotice(String(FW_WORLD_NAMES[mapIndex]) + " cleared!",
+               String("Next: ") + FW_WORLD_NAMES[mapIndex + 1], 1800);
+      mapIndex++;
+      continue;
     }
-
-    delay(1);   // minimal yield (WDT); the swap() push already paces the frame rate
+    if (cleared && mapIndex + 1 >= FW_WORLD_COUNT) campaignWin = true;
+    else if (cleared)
+      fwNotice(String(FW_WORLD_NAMES[mapIndex]) + " cleared!",
+               String("Unlocked: ") + FW_WORLD_NAMES[mapIndex + 1], 2200);
+    break;
   }
 
-  flipWorldStatsSave(worlds[0]);   // persist progression (shared player, any level works)
+  if (campaignWin) fwNotice("All maps cleared!", "You beat FlipWorld!", 2800);
 
-  engine->stop();          // stops the game, clears the screen, deletes the game (+ levels)
-  delete engine;
-  if (player) delete player;   // Game deleted the levels but Level::clear skipped is_player
+  // Save/sync confirmation on the way out.
+  bool online = fwOnline();
+  fwNotice(online ? "Stats saved & synced online" : "Stats saved to SD", "", 1600);
+
   im->reset(true, 200);
 }
 
+// Map-select screen: lists all maps; locked ones can't be entered. Returns the
+// chosen (unlocked) map index, or -1 on Back.
+static int fwMapPicker() {
+  String rows[FW_WORLD_COUNT];
+  for (;;) {
+    int unlocked = fwUnlockedCount();
+    for (int i = 0; i < FW_WORLD_COUNT; i++) {
+      rows[i] = String(i + 1) + ". " + FW_WORLD_NAMES[i] + (i < unlocked ? "" : "  (Locked)");
+    }
+    int sel = scrollList("Select Map", rows, FW_WORLD_COUNT, true, "Back", "", "");
+    if (sel == SL_BACK || sel == SL_F0) return -1;
+    if (sel >= 0 && sel < FW_WORLD_COUNT) {
+      if (sel < unlocked) return sel;
+      msgScreen("Locked", "Clear earlier maps first", "to unlock this one.", COL_DIM);
+    }
+  }
+}
+
 // Main menu (H4W9-style large rounded buttons)
-static const char *MENU_ITEMS[] = { "Play FlipWorld", "Settings" };
-static const int    MENU_COUNT  = 2;
+static const char *MENU_ITEMS[] = { "Campaign", "Select Map", "Settings" };
+static const int    MENU_COUNT  = 3;
 static const int    MENU_MARGIN = 16;
 static const int    MENU_TOP    = CONTENTY + 12;
 static const int    MENU_GAP    = 12;
@@ -1474,8 +1522,11 @@ static void drawMenu() {
 
 static void openMenuItem(int i) {
   switch (i) {
-    case 0: playFlipWorld(); break;   // Play — blocking game loop, returns on hold-to-exit
-    case 1: settingsFlow();  break;   // WiFi, theme, brightness, About
+    case 0: playMaps(0, true); break;  // Campaign — clear a map to advance to the next
+    case 1:                            // Select Map — pick a map, play it, back to picker
+      for (;;) { int m = fwMapPicker(); if (m < 0) break; playMaps(m, false); }
+      break;
+    case 2: settingsFlow(); break;     // WiFi, theme, brightness, About
     default: break;
   }
   drawMenu();

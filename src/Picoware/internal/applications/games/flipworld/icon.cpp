@@ -88,7 +88,20 @@ namespace FlipWorld
     {
         if (strcmp(other->name, "Player") == 0)
         {
-            other->position_set(other->old_position);
+            // Only block when the player overlaps the object by more than a small
+            // margin, so the player can move right up close to objects (grazing the
+            // edges) before being stopped.
+            const float margin = 5;
+            float ax1 = self->position.x, ax2 = self->position.x + self->size.x;
+            float bx1 = other->position.x, bx2 = other->position.x + other->size.x;
+            float ay1 = self->position.y, ay2 = self->position.y + self->size.y;
+            float by1 = other->position.y, by2 = other->position.y + other->size.y;
+            float ox = (ax2 < bx2 ? ax2 : bx2) - (ax1 > bx1 ? ax1 : bx1);
+            float oy = (ay2 < by2 ? ay2 : by2) - (ay1 > by1 ? ay1 : by1);
+            if (ox > margin && oy > margin)
+            {
+                other->position_set(other->old_position);
+            }
         }
     }
 
@@ -154,6 +167,12 @@ namespace FlipWorld
         // Assign the shared Image to the entity
         newEntity->sprite = sharedImage;
         newEntity->ink_color = icon_ink_color(name); // FlipWorld colour port
+        if (strcmp(name, "flower") == 0)
+        {
+            // Flowers come in a mix of colours.
+            static const uint16_t flowerColors[] = {0xF81F, 0xFD20, 0xFFE0, 0xFC9F, 0x07FF, 0xFFFF, 0xF800, 0xA95F};
+            newEntity->ink_color = flowerColors[random(0, 8)];
+        }
 
         // Add to level
         level->entity_add(newEntity);

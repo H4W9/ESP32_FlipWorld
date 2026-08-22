@@ -4,94 +4,212 @@
 // All assets from FlipWorld game: https://github.com/jblanked/FlipWorld
 // Translated with: https://www.jblanked.com/flipper/png-to-fb/
 
-// ── The three FlipWorld worlds (icon layouts from jblanked/FlipWorld getLevelJson;
-//    enemies per world). Parsed by icon_spawn_json (json_data) + enemy_spawn_json
-//    (enemy_data). Enemy ids must be sprite names: cyclops / ogre / ghost. ──────
-static const PROGMEM char world_home_woods[] = R"json(
-    {
-    "name": "Home Woods",
-    "json_data": [
-        {"icon": "rock_medium", "x": 100, "y": 100, "amount": 10, "horizontal": true},
-        {"icon": "rock_medium", "x": 400, "y": 300, "amount": 6, "horizontal": true},
-        {"icon": "rock_small", "x": 600, "y": 200, "amount": 8, "horizontal": true},
-        {"icon": "fence", "x": 50, "y": 50, "amount": 10, "horizontal": true},
-        {"icon": "fence", "x": 250, "y": 150, "amount": 12, "horizontal": true},
-        {"icon": "fence", "x": 550, "y": 350, "amount": 12, "horizontal": true},
-        {"icon": "rock_large", "x": 400, "y": 70, "amount": 12, "horizontal": true},
-        {"icon": "rock_large", "x": 200, "y": 200, "amount": 6, "horizontal": false},
-        {"icon": "tree", "x": 5, "y": 5, "amount": 45, "horizontal": true},
-        {"icon": "tree", "x": 5, "y": 5, "amount": 20, "horizontal": false},
-        {"icon": "tree", "x": 22, "y": 22, "amount": 44, "horizontal": true},
-        {"icon": "tree", "x": 5, "y": 347, "amount": 45, "horizontal": true},
-        {"icon": "tree", "x": 5, "y": 364, "amount": 45, "horizontal": true},
-        {"icon": "tree", "x": 735, "y": 37, "amount": 18, "horizontal": false},
-        {"icon": "tree", "x": 752, "y": 37, "amount": 18, "horizontal": false}
-    ],
-    "enemy_data": [
-        {"id": "cyclops", "index": 0, "start_position": {"x": 350, "y": 220}, "end_position": {"x": 390, "y": 220}, "move_timer": 2, "speed": 30, "attack_timer": 0.4, "strength": 10, "health": 100},
-        {"id": "ogre", "index": 1, "start_position": {"x": 200, "y": 320}, "end_position": {"x": 220, "y": 320}, "move_timer": 0.5, "speed": 45, "attack_timer": 0.6, "strength": 20, "health": 200},
-        {"id": "ghost", "index": 2, "start_position": {"x": 100, "y": 80}, "end_position": {"x": 180, "y": 85}, "move_timer": 2.2, "speed": 55, "attack_timer": 0.5, "strength": 30, "health": 300}
-    ]
-    }
-    )json";
+// ── The 12 FlipWorld worlds. Parsed by icon_spawn_json (json_data) + enemy_spawn_json
+//    (enemy_data). Icon names must match icon_context_get; enemy ids must be sprite
+//    names: cyclops / ogre / ghost. Enemy count scales: maps 1-4 = 3, 5-8 = 4, 9-12 = 5.
+//    (Names/order live in FW_WORLD_NAMES / FW_WORLD_JSON in the sketch.)
 
-static const PROGMEM char world_rock_world[] = R"json(
-    {
-    "name": "Rock World",
-    "json_data": [
-        {"icon": "house", "x": 100, "y": 50, "amount": 1, "horizontal": true},
-        {"icon": "tree", "x": 650, "y": 420, "amount": 5, "horizontal": true},
-        {"icon": "rock_large", "x": 150, "y": 150, "amount": 2, "horizontal": true},
-        {"icon": "rock_medium", "x": 210, "y": 80, "amount": 3, "horizontal": true},
-        {"icon": "rock_small", "x": 480, "y": 110, "amount": 4, "horizontal": false},
-        {"icon": "flower", "x": 280, "y": 140, "amount": 3, "horizontal": true},
-        {"icon": "plant", "x": 120, "y": 130, "amount": 2, "horizontal": true},
-        {"icon": "rock_large", "x": 400, "y": 200, "amount": 3, "horizontal": true},
-        {"icon": "rock_medium", "x": 600, "y": 50, "amount": 5, "horizontal": false},
-        {"icon": "rock_small", "x": 500, "y": 100, "amount": 6, "horizontal": true},
-        {"icon": "tree", "x": 650, "y": 20, "amount": 4, "horizontal": true},
-        {"icon": "flower", "x": 550, "y": 250, "amount": 8, "horizontal": true},
-        {"icon": "plant", "x": 300, "y": 300, "amount": 5, "horizontal": true},
-        {"icon": "tree", "x": 50, "y": 300, "amount": 10, "horizontal": true},
-        {"icon": "flower", "x": 350, "y": 100, "amount": 7, "horizontal": true}
-    ],
-    "enemy_data": [
-        {"id": "ogre", "index": 0, "start_position": {"x": 300, "y": 200}, "end_position": {"x": 360, "y": 200}, "move_timer": 1.5, "speed": 40, "attack_timer": 0.6, "strength": 20, "health": 200},
-        {"id": "cyclops", "index": 1, "start_position": {"x": 500, "y": 150}, "end_position": {"x": 540, "y": 150}, "move_timer": 2, "speed": 30, "attack_timer": 0.4, "strength": 15, "health": 120},
-        {"id": "ghost", "index": 2, "start_position": {"x": 150, "y": 250}, "end_position": {"x": 230, "y": 255}, "move_timer": 2, "speed": 55, "attack_timer": 0.5, "strength": 30, "health": 300},
-        {"id": "ogre", "index": 3, "start_position": {"x": 600, "y": 300}, "end_position": {"x": 660, "y": 300}, "move_timer": 1.7, "speed": 35, "attack_timer": 1.0, "strength": 25, "health": 250}
-    ]
-    }
-    )json";
+static const PROGMEM char world_01[] = R"json(
+{"name":"Home Woods","json_data":[
+{"icon":"tree","x":10,"y":8,"amount":40,"horizontal":true},
+{"icon":"tree","x":10,"y":360,"amount":40,"horizontal":true},
+{"icon":"tree","x":10,"y":24,"amount":18,"horizontal":false},
+{"icon":"tree","x":752,"y":24,"amount":18,"horizontal":false},
+{"icon":"rock_medium","x":120,"y":110,"amount":8,"horizontal":true},
+{"icon":"fence","x":260,"y":160,"amount":10,"horizontal":true},
+{"icon":"rock_large","x":460,"y":90,"amount":6,"horizontal":true},
+{"icon":"rock_small","x":560,"y":240,"amount":6,"horizontal":true}
+],"enemy_data":[
+{"id":"cyclops","index":0,"start_position":{"x":350,"y":210},"end_position":{"x":400,"y":210},"move_timer":2,"speed":30,"attack_timer":0.4,"strength":10,"health":100},
+{"id":"ogre","index":1,"start_position":{"x":200,"y":300},"end_position":{"x":250,"y":300},"move_timer":0.6,"speed":40,"attack_timer":0.6,"strength":18,"health":180},
+{"id":"ghost","index":2,"start_position":{"x":560,"y":120},"end_position":{"x":620,"y":125},"move_timer":2,"speed":50,"attack_timer":0.5,"strength":26,"health":260}
+]}
+)json";
 
-static const PROGMEM char world_forest_world[] = R"json(
-    {
-    "name": "Forest World",
-    "json_data": [
-        {"icon": "rock_small", "x": 120, "y": 20, "amount": 10, "horizontal": false},
-        {"icon": "tree", "x": 50, "y": 50, "amount": 10, "horizontal": true},
-        {"icon": "flower", "x": 200, "y": 70, "amount": 8, "horizontal": false},
-        {"icon": "rock_small", "x": 250, "y": 100, "amount": 8, "horizontal": true},
-        {"icon": "rock_medium", "x": 300, "y": 140, "amount": 2, "horizontal": true},
-        {"icon": "plant", "x": 50, "y": 300, "amount": 10, "horizontal": true},
-        {"icon": "rock_large", "x": 650, "y": 250, "amount": 3, "horizontal": true},
-        {"icon": "flower", "x": 300, "y": 350, "amount": 5, "horizontal": true},
-        {"icon": "tree", "x": 20, "y": 150, "amount": 10, "horizontal": false},
-        {"icon": "tree", "x": 5, "y": 5, "amount": 45, "horizontal": true},
-        {"icon": "tree", "x": 22, "y": 22, "amount": 44, "horizontal": true},
-        {"icon": "tree", "x": 5, "y": 347, "amount": 45, "horizontal": true},
-        {"icon": "tree", "x": 5, "y": 364, "amount": 45, "horizontal": true},
-        {"icon": "tree", "x": 735, "y": 37, "amount": 18, "horizontal": false},
-        {"icon": "tree", "x": 752, "y": 37, "amount": 18, "horizontal": false}
-    ],
-    "enemy_data": [
-        {"id": "ghost", "index": 0, "start_position": {"x": 200, "y": 100}, "end_position": {"x": 280, "y": 105}, "move_timer": 2.2, "speed": 55, "attack_timer": 0.5, "strength": 30, "health": 300},
-        {"id": "cyclops", "index": 1, "start_position": {"x": 400, "y": 200}, "end_position": {"x": 440, "y": 200}, "move_timer": 2, "speed": 30, "attack_timer": 0.4, "strength": 15, "health": 150},
-        {"id": "ogre", "index": 2, "start_position": {"x": 550, "y": 300}, "end_position": {"x": 610, "y": 300}, "move_timer": 1.5, "speed": 45, "attack_timer": 0.6, "strength": 25, "health": 250},
-        {"id": "ghost", "index": 3, "start_position": {"x": 300, "y": 250}, "end_position": {"x": 380, "y": 255}, "move_timer": 2, "speed": 50, "attack_timer": 0.5, "strength": 35, "health": 350}
-    ]
-    }
-    )json";
+static const PROGMEM char world_02[] = R"json(
+{"name":"Rock World","json_data":[
+{"icon":"house","x":90,"y":40,"amount":1,"horizontal":true},
+{"icon":"rock_large","x":150,"y":150,"amount":5,"horizontal":true},
+{"icon":"rock_medium","x":220,"y":90,"amount":5,"horizontal":false},
+{"icon":"rock_small","x":470,"y":110,"amount":6,"horizontal":true},
+{"icon":"rock_large","x":420,"y":250,"amount":5,"horizontal":true},
+{"icon":"rock_medium","x":620,"y":60,"amount":5,"horizontal":false},
+{"icon":"tree","x":60,"y":320,"amount":10,"horizontal":true}
+],"enemy_data":[
+{"id":"ogre","index":0,"start_position":{"x":300,"y":200},"end_position":{"x":360,"y":200},"move_timer":1.5,"speed":40,"attack_timer":0.6,"strength":20,"health":200},
+{"id":"cyclops","index":1,"start_position":{"x":520,"y":180},"end_position":{"x":560,"y":180},"move_timer":2,"speed":30,"attack_timer":0.4,"strength":14,"health":130},
+{"id":"ghost","index":2,"start_position":{"x":180,"y":250},"end_position":{"x":240,"y":255},"move_timer":2,"speed":55,"attack_timer":0.5,"strength":28,"health":300}
+]}
+)json";
+
+static const PROGMEM char world_03[] = R"json(
+{"name":"Forest Glade","json_data":[
+{"icon":"tree","x":20,"y":20,"amount":12,"horizontal":false},
+{"icon":"tree","x":720,"y":20,"amount":12,"horizontal":false},
+{"icon":"plant","x":120,"y":300,"amount":8,"horizontal":true},
+{"icon":"flower","x":300,"y":120,"amount":6,"horizontal":true},
+{"icon":"flower","x":300,"y":260,"amount":6,"horizontal":true},
+{"icon":"rock_small","x":540,"y":180,"amount":5,"horizontal":true},
+{"icon":"tree","x":420,"y":40,"amount":8,"horizontal":true}
+],"enemy_data":[
+{"id":"ghost","index":0,"start_position":{"x":220,"y":180},"end_position":{"x":280,"y":185},"move_timer":2,"speed":55,"attack_timer":0.5,"strength":26,"health":260},
+{"id":"cyclops","index":1,"start_position":{"x":420,"y":220},"end_position":{"x":470,"y":220},"move_timer":2,"speed":32,"attack_timer":0.4,"strength":16,"health":150},
+{"id":"ogre","index":2,"start_position":{"x":560,"y":300},"end_position":{"x":610,"y":300},"move_timer":1.4,"speed":45,"attack_timer":0.6,"strength":22,"health":220}
+]}
+)json";
+
+static const PROGMEM char world_04[] = R"json(
+{"name":"Meadow","json_data":[
+{"icon":"flower","x":60,"y":60,"amount":10,"horizontal":true},
+{"icon":"flower","x":60,"y":320,"amount":10,"horizontal":true},
+{"icon":"plant","x":300,"y":180,"amount":8,"horizontal":true},
+{"icon":"flower","x":520,"y":90,"amount":8,"horizontal":false},
+{"icon":"tree","x":680,"y":40,"amount":10,"horizontal":false},
+{"icon":"plant","x":140,"y":200,"amount":5,"horizontal":false}
+],"enemy_data":[
+{"id":"cyclops","index":0,"start_position":{"x":260,"y":140},"end_position":{"x":320,"y":140},"move_timer":1.8,"speed":34,"attack_timer":0.4,"strength":16,"health":150},
+{"id":"ogre","index":1,"start_position":{"x":420,"y":260},"end_position":{"x":480,"y":260},"move_timer":1.3,"speed":46,"attack_timer":0.6,"strength":24,"health":240},
+{"id":"ghost","index":2,"start_position":{"x":600,"y":180},"end_position":{"x":660,"y":185},"move_timer":2,"speed":55,"attack_timer":0.5,"strength":30,"health":300}
+]}
+)json";
+
+static const PROGMEM char world_05[] = R"json(
+{"name":"Stronghold","json_data":[
+{"icon":"house","x":80,"y":40,"amount":1,"horizontal":true},
+{"icon":"fence","x":40,"y":110,"amount":14,"horizontal":true},
+{"icon":"fence","x":40,"y":300,"amount":14,"horizontal":true},
+{"icon":"fence_vertical_start","x":40,"y":130,"amount":8,"horizontal":false},
+{"icon":"rock_medium","x":400,"y":180,"amount":6,"horizontal":true},
+{"icon":"rock_large","x":560,"y":90,"amount":5,"horizontal":true},
+{"icon":"tree","x":700,"y":30,"amount":16,"horizontal":false}
+],"enemy_data":[
+{"id":"ogre","index":0,"start_position":{"x":300,"y":180},"end_position":{"x":350,"y":180},"move_timer":1.3,"speed":46,"attack_timer":0.6,"strength":24,"health":240},
+{"id":"cyclops","index":1,"start_position":{"x":500,"y":220},"end_position":{"x":550,"y":220},"move_timer":1.8,"speed":34,"attack_timer":0.4,"strength":18,"health":160},
+{"id":"ghost","index":2,"start_position":{"x":200,"y":250},"end_position":{"x":260,"y":255},"move_timer":1.8,"speed":58,"attack_timer":0.5,"strength":30,"health":300},
+{"id":"ogre","index":3,"start_position":{"x":600,"y":300},"end_position":{"x":650,"y":300},"move_timer":1.4,"speed":44,"attack_timer":0.7,"strength":26,"health":260}
+]}
+)json";
+
+static const PROGMEM char world_06[] = R"json(
+{"name":"Lakeside","json_data":[
+{"icon":"lake_top","x":260,"y":120,"amount":8,"horizontal":true},
+{"icon":"lake_bottom","x":260,"y":240,"amount":8,"horizontal":true},
+{"icon":"lake_left","x":250,"y":140,"amount":6,"horizontal":false},
+{"icon":"lake_right","x":410,"y":140,"amount":6,"horizontal":false},
+{"icon":"tree","x":30,"y":30,"amount":16,"horizontal":false},
+{"icon":"tree","x":720,"y":30,"amount":16,"horizontal":false},
+{"icon":"flower","x":80,"y":320,"amount":8,"horizontal":true}
+],"enemy_data":[
+{"id":"ghost","index":0,"start_position":{"x":120,"y":180},"end_position":{"x":180,"y":185},"move_timer":1.8,"speed":58,"attack_timer":0.5,"strength":28,"health":280},
+{"id":"cyclops","index":1,"start_position":{"x":560,"y":160},"end_position":{"x":610,"y":160},"move_timer":1.8,"speed":34,"attack_timer":0.4,"strength":18,"health":170},
+{"id":"ogre","index":2,"start_position":{"x":560,"y":300},"end_position":{"x":610,"y":300},"move_timer":1.3,"speed":46,"attack_timer":0.6,"strength":26,"health":260},
+{"id":"ogre","index":3,"start_position":{"x":120,"y":300},"end_position":{"x":170,"y":300},"move_timer":1.4,"speed":44,"attack_timer":0.7,"strength":24,"health":240}
+]}
+)json";
+
+static const PROGMEM char world_07[] = R"json(
+{"name":"Boulder Field","json_data":[
+{"icon":"rock_large","x":60,"y":60,"amount":6,"horizontal":true},
+{"icon":"rock_large","x":420,"y":80,"amount":6,"horizontal":true},
+{"icon":"rock_medium","x":120,"y":180,"amount":8,"horizontal":true},
+{"icon":"rock_medium","x":500,"y":220,"amount":6,"horizontal":true},
+{"icon":"rock_small","x":260,"y":300,"amount":10,"horizontal":true},
+{"icon":"rock_large","x":650,"y":160,"amount":4,"horizontal":false}
+],"enemy_data":[
+{"id":"cyclops","index":0,"start_position":{"x":300,"y":140},"end_position":{"x":350,"y":140},"move_timer":1.8,"speed":36,"attack_timer":0.4,"strength":20,"health":180},
+{"id":"ogre","index":1,"start_position":{"x":480,"y":180},"end_position":{"x":530,"y":180},"move_timer":1.2,"speed":48,"attack_timer":0.6,"strength":26,"health":260},
+{"id":"ghost","index":2,"start_position":{"x":200,"y":240},"end_position":{"x":260,"y":245},"move_timer":1.7,"speed":58,"attack_timer":0.5,"strength":30,"health":300},
+{"id":"ogre","index":3,"start_position":{"x":600,"y":300},"end_position":{"x":650,"y":300},"move_timer":1.3,"speed":46,"attack_timer":0.7,"strength":28,"health":280}
+]}
+)json";
+
+static const PROGMEM char world_08[] = R"json(
+{"name":"Village","json_data":[
+{"icon":"house","x":80,"y":40,"amount":1,"horizontal":true},
+{"icon":"house","x":560,"y":40,"amount":1,"horizontal":true},
+{"icon":"man","x":200,"y":140,"amount":1,"horizontal":true},
+{"icon":"woman","x":260,"y":140,"amount":1,"horizontal":true},
+{"icon":"fence","x":60,"y":260,"amount":16,"horizontal":true},
+{"icon":"flower","x":400,"y":180,"amount":6,"horizontal":true},
+{"icon":"tree","x":700,"y":30,"amount":16,"horizontal":false}
+],"enemy_data":[
+{"id":"ogre","index":0,"start_position":{"x":320,"y":180},"end_position":{"x":370,"y":180},"move_timer":1.2,"speed":48,"attack_timer":0.6,"strength":28,"health":280},
+{"id":"cyclops","index":1,"start_position":{"x":480,"y":220},"end_position":{"x":530,"y":220},"move_timer":1.7,"speed":36,"attack_timer":0.4,"strength":20,"health":190},
+{"id":"ghost","index":2,"start_position":{"x":180,"y":300},"end_position":{"x":240,"y":305},"move_timer":1.7,"speed":58,"attack_timer":0.5,"strength":32,"health":320},
+{"id":"ghost","index":3,"start_position":{"x":600,"y":200},"end_position":{"x":650,"y":205},"move_timer":1.8,"speed":56,"attack_timer":0.5,"strength":30,"health":300}
+]}
+)json";
+
+static const PROGMEM char world_09[] = R"json(
+{"name":"Deep Woods","json_data":[
+{"icon":"tree","x":20,"y":20,"amount":18,"horizontal":false},
+{"icon":"tree","x":740,"y":20,"amount":18,"horizontal":false},
+{"icon":"tree","x":40,"y":10,"amount":42,"horizontal":true},
+{"icon":"tree","x":40,"y":360,"amount":42,"horizontal":true},
+{"icon":"tree","x":220,"y":120,"amount":6,"horizontal":true},
+{"icon":"plant","x":420,"y":200,"amount":8,"horizontal":true},
+{"icon":"rock_medium","x":560,"y":140,"amount":5,"horizontal":true}
+],"enemy_data":[
+{"id":"ghost","index":0,"start_position":{"x":200,"y":180},"end_position":{"x":260,"y":185},"move_timer":1.6,"speed":60,"attack_timer":0.5,"strength":32,"health":320},
+{"id":"ogre","index":1,"start_position":{"x":420,"y":150},"end_position":{"x":470,"y":150},"move_timer":1.1,"speed":50,"attack_timer":0.6,"strength":30,"health":300},
+{"id":"cyclops","index":2,"start_position":{"x":320,"y":260},"end_position":{"x":370,"y":260},"move_timer":1.6,"speed":38,"attack_timer":0.4,"strength":22,"health":200},
+{"id":"ogre","index":3,"start_position":{"x":560,"y":260},"end_position":{"x":610,"y":260},"move_timer":1.2,"speed":48,"attack_timer":0.7,"strength":30,"health":300},
+{"id":"ghost","index":4,"start_position":{"x":480,"y":300},"end_position":{"x":540,"y":305},"move_timer":1.7,"speed":58,"attack_timer":0.5,"strength":34,"health":340}
+]}
+)json";
+
+static const PROGMEM char world_10[] = R"json(
+{"name":"Wasteland","json_data":[
+{"icon":"rock_small","x":60,"y":80,"amount":8,"horizontal":true},
+{"icon":"rock_medium","x":300,"y":60,"amount":5,"horizontal":true},
+{"icon":"rock_large","x":540,"y":120,"amount":4,"horizontal":true},
+{"icon":"rock_small","x":160,"y":300,"amount":8,"horizontal":true},
+{"icon":"rock_medium","x":480,"y":280,"amount":5,"horizontal":true},
+{"icon":"plant","x":680,"y":200,"amount":4,"horizontal":false}
+],"enemy_data":[
+{"id":"ogre","index":0,"start_position":{"x":260,"y":180},"end_position":{"x":320,"y":180},"move_timer":1.1,"speed":52,"attack_timer":0.6,"strength":32,"health":320},
+{"id":"cyclops","index":1,"start_position":{"x":460,"y":200},"end_position":{"x":510,"y":200},"move_timer":1.5,"speed":40,"attack_timer":0.4,"strength":24,"health":210},
+{"id":"ghost","index":2,"start_position":{"x":140,"y":220},"end_position":{"x":200,"y":225},"move_timer":1.6,"speed":60,"attack_timer":0.5,"strength":34,"health":340},
+{"id":"ogre","index":3,"start_position":{"x":600,"y":300},"end_position":{"x":650,"y":300},"move_timer":1.2,"speed":50,"attack_timer":0.7,"strength":32,"health":320},
+{"id":"cyclops","index":4,"start_position":{"x":360,"y":300},"end_position":{"x":410,"y":300},"move_timer":1.6,"speed":38,"attack_timer":0.4,"strength":26,"health":230}
+]}
+)json";
+
+static const PROGMEM char world_11[] = R"json(
+{"name":"Flower Garden","json_data":[
+{"icon":"flower","x":40,"y":40,"amount":12,"horizontal":true},
+{"icon":"flower","x":40,"y":340,"amount":12,"horizontal":true},
+{"icon":"plant","x":300,"y":110,"amount":8,"horizontal":true},
+{"icon":"lake_top","x":320,"y":170,"amount":6,"horizontal":true},
+{"icon":"lake_bottom","x":320,"y":250,"amount":6,"horizontal":true},
+{"icon":"flower","x":620,"y":80,"amount":8,"horizontal":false},
+{"icon":"tree","x":720,"y":30,"amount":16,"horizontal":false}
+],"enemy_data":[
+{"id":"ghost","index":0,"start_position":{"x":160,"y":180},"end_position":{"x":220,"y":185},"move_timer":1.6,"speed":60,"attack_timer":0.5,"strength":34,"health":340},
+{"id":"ogre","index":1,"start_position":{"x":460,"y":150},"end_position":{"x":510,"y":150},"move_timer":1.1,"speed":52,"attack_timer":0.6,"strength":32,"health":320},
+{"id":"cyclops","index":2,"start_position":{"x":260,"y":300},"end_position":{"x":310,"y":300},"move_timer":1.5,"speed":40,"attack_timer":0.4,"strength":26,"health":230},
+{"id":"ogre","index":3,"start_position":{"x":560,"y":300},"end_position":{"x":610,"y":300},"move_timer":1.2,"speed":50,"attack_timer":0.7,"strength":34,"health":340},
+{"id":"ghost","index":4,"start_position":{"x":600,"y":200},"end_position":{"x":650,"y":205},"move_timer":1.6,"speed":58,"attack_timer":0.5,"strength":36,"health":360}
+]}
+)json";
+
+static const PROGMEM char world_12[] = R"json(
+{"name":"Shadow Keep","json_data":[
+{"icon":"house","x":340,"y":30,"amount":1,"horizontal":true},
+{"icon":"fence","x":40,"y":90,"amount":40,"horizontal":true},
+{"icon":"fence","x":40,"y":320,"amount":40,"horizontal":true},
+{"icon":"fence_vertical_start","x":40,"y":110,"amount":10,"horizontal":false},
+{"icon":"fence_vertical_end","x":740,"y":110,"amount":10,"horizontal":false},
+{"icon":"rock_large","x":200,"y":180,"amount":5,"horizontal":true},
+{"icon":"rock_medium","x":500,"y":200,"amount":5,"horizontal":true}
+],"enemy_data":[
+{"id":"ogre","index":0,"start_position":{"x":300,"y":180},"end_position":{"x":350,"y":180},"move_timer":1.0,"speed":54,"attack_timer":0.6,"strength":36,"health":360},
+{"id":"ghost","index":1,"start_position":{"x":460,"y":160},"end_position":{"x":510,"y":165},"move_timer":1.5,"speed":62,"attack_timer":0.5,"strength":36,"health":360},
+{"id":"cyclops","index":2,"start_position":{"x":220,"y":250},"end_position":{"x":270,"y":250},"move_timer":1.4,"speed":42,"attack_timer":0.4,"strength":28,"health":250},
+{"id":"ogre","index":3,"start_position":{"x":560,"y":260},"end_position":{"x":610,"y":260},"move_timer":1.1,"speed":52,"attack_timer":0.7,"strength":36,"health":360},
+{"id":"ghost","index":4,"start_position":{"x":400,"y":280},"end_position":{"x":460,"y":285},"move_timer":1.5,"speed":60,"attack_timer":0.5,"strength":38,"health":380}
+]}
+)json";
 
 static const PROGMEM uint8_t icon_tree_16x16[256] = {
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0xFF, 0x00, 0xFF, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF};
