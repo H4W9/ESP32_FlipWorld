@@ -1259,11 +1259,11 @@ static void flipWorldIntro() {
   tft->setTextDatum(MC_DATUM);
   tft->setTextColor(COL_FG, COL_BG);
   int cy = SCRH / 2;
-  tft->drawString("Touch to move any direction",  SCRW / 2, cy - 44, 2);
-  tft->drawString("(away from centre = walk there)", SCRW / 2, cy - 24, 2);
-  tft->drawString("Tap the centre to attack",      SCRW / 2, cy - 4,  2);
-  tft->drawString("Clear the map of foes to win",  SCRW / 2, cy + 12, 2);
-  tft->drawString("Tap < Back to quit",            SCRW / 2, cy + 36, 2);
+  tft->drawString("Hold an edge to move",         SCRW / 2, cy - 44, 2);
+  tft->drawString("Hold a corner for diagonals",  SCRW / 2, cy - 24, 2);
+  tft->drawString("Tap the centre to attack",     SCRW / 2, cy - 4,  2);
+  tft->drawString("Clear the map of foes to win", SCRW / 2, cy + 12, 2);
+  tft->drawString("Tap < Back to quit",           SCRW / 2, cy + 36, 2);
   tft->setTextColor(COL_FG, COL_BG);
   tft->drawString("Tap to begin",                SCRW / 2, cy + 66, 4);
   tft->setTextDatum(TL_DATUM);

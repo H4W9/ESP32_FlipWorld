@@ -446,36 +446,35 @@ namespace FlipWorld
         Vector oldPos = self->position;
         Vector newPos = oldPos;
 
-        // Move as a vector toward the current touch point (relative to screen centre),
-        // giving full 360° movement including diagonals. A central deadzone = attack.
+        // Edge-zone nav (the original layout): the touch's screen position picks the
+        // move. Top/bottom fifth = up/down, left/right quarter = left/right, and a
+        // CORNER is in two zones at once → diagonal (e.g. bottom+left = down-left).
+        // The central rectangle (no edge) is the attack zone (its original size).
         const float STEP = 6;
         TouchInput *touch = game->input_manager ? game->input_manager->getTouch() : nullptr;
         if (touch && touch->isPressed())
         {
-            float cx = game->size.x / 2.0f;
-            float cy = game->size.y / 2.0f;
-            float dx = (float)touch->x() - cx;
-            float dy = (float)touch->y() - cy;
-            float mag = sqrtf(dx * dx + dy * dy);
-            const float deadzone = 30; // central press = attack, not move
-            if (mag > deadzone)
+            float w = game->size.x, h = game->size.y;
+            float px = touch->x(), py = touch->y();
+            float mx = 0, my = 0;
+            if (py < h / 5) my -= 1;          // top edge    → up
+            else if (py > h * 4 / 5) my += 1; // bottom edge → down
+            if (px < w / 4) mx -= 1;          // left edge   → left
+            else if (px > w * 3 / 4) mx += 1; // right edge  → right
+
+            if (mx != 0 || my != 0)
             {
-                newPos.x += (dx / mag) * STEP; // unit vector → constant speed, any angle
-                newPos.y += (dy / mag) * STEP;
-                if (fabsf(dx) >= fabsf(dy))
-                {
-                    self->direction = dx < 0 ? ENTITY_LEFT : ENTITY_RIGHT;
-                    last_button = dx < 0 ? BUTTON_LEFT : BUTTON_RIGHT;
-                }
-                else
-                {
-                    self->direction = dy < 0 ? ENTITY_UP : ENTITY_DOWN;
-                    last_button = dy < 0 ? BUTTON_UP : BUTTON_DOWN;
-                }
+                float mag = sqrtf(mx * mx + my * my); // normalise so diagonals aren't faster
+                newPos.x += (mx / mag) * STEP;
+                newPos.y += (my / mag) * STEP;
+                if (mx < 0) { self->direction = ENTITY_LEFT;  last_button = BUTTON_LEFT; }
+                else if (mx > 0) { self->direction = ENTITY_RIGHT; last_button = BUTTON_RIGHT; }
+                else if (my < 0) { self->direction = ENTITY_UP; last_button = BUTTON_UP; }
+                else { self->direction = ENTITY_DOWN; last_button = BUTTON_DOWN; }
             }
             else
             {
-                last_button = BUTTON_CENTER; // centre = attack
+                last_button = BUTTON_CENTER; // central rectangle = attack
             }
         }
 
