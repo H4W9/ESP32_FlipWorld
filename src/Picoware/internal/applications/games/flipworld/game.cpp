@@ -1029,12 +1029,20 @@ namespace FlipWorld
         // 480px panel), there's nothing to scroll — lock the camera so the map's bottom
         // aligns with the display bottom (camera_y = map height - screen height, which
         // is negative and never jumps).
+        //
+        // The launcher paints a fixed HUD header over the top FW_HEADER_H px of the
+        // panel, so the camera is allowed to pan UP that far past the map's top edge
+        // (camera_y down to -FW_HEADER_H). That keeps the map's top row sitting just
+        // BELOW the header instead of the player climbing behind it and vanishing "off
+        // the top", and it widens the usable vertical scroll by the header height.
+        const float FW_HEADER_H = 28.0f; // matches HDRH in the launcher
         float max_cam_y = game->current_level->size.y - game->size.y;
+        float min_cam_y = -FW_HEADER_H;
         float camera_y;
-        if (max_cam_y <= 0)
-            camera_y = max_cam_y; // map fits vertically → fixed, bottom-aligned (Pancake)
+        if (max_cam_y <= min_cam_y)
+            camera_y = max_cam_y; // map fits under the viewport → bottom-aligned (Pancake)
         else
-            camera_y = constrain(self->position.y - game->size.y / 2, 0, max_cam_y); // follow (V8)
+            camera_y = constrain(self->position.y - game->size.y / 2, min_cam_y, max_cam_y); // follow (V8)
 
         game->pos = Vector(camera_x, camera_y);
 
