@@ -28,13 +28,13 @@ namespace FlipWorld
         fw_player_name[sizeof(fw_player_name) - 1] = '\0';
     }
 
-    // Whether the detailed stats HUD (top-left HP/LVL/XP box) is shown. Toggled by
-    // tapping the HUD in-game; the launcher persists it across sessions. A floating
-    // health bar under the player's name is always shown regardless.
-    static bool g_statsHud = true;
+    // Whether the floating health bar under the player's name is shown. Toggled by
+    // tapping the HP line of the stats HUD in-game; the launcher persists it across
+    // sessions. The detailed stats HUD itself is always shown.
+    static bool g_healthBar = true;
     static bool g_statsTapHeld = false; // edge-detect the toggle tap
-    void fw_set_stats_hud(bool on) { g_statsHud = on; }
-    bool fw_get_stats_hud() { return g_statsHud; }
+    void fw_set_health_bar(bool on) { g_healthBar = on; }
+    bool fw_get_health_bar() { return g_healthBar; }
 
     typedef struct
     {
@@ -966,17 +966,16 @@ namespace FlipWorld
         TouchInput *touch = game->input_manager ? game->input_manager->getTouch() : nullptr;
 
         // Tapping strictly the HP row of the stats HUD (top-left, first line of
-        // draw_user_stats' box) toggles the detailed HUD on/off. Edge-detected so a hold
-        // flips it once. Movement is NOT suppressed — the tap still steers as normal, it
-        // just also flips the HUD. The row stays tappable while hidden, so the same spot
-        // turns it back on.
+        // draw_user_stats' box) toggles the floating health bar under the player's name
+        // on/off. Edge-detected so a hold flips it once. Movement is NOT suppressed — the
+        // tap still steers as normal, it just also flips the health bar.
         bool hpRowTap = false;
         if (touch && touch->isPressed())
         {
             float tx = touch->x(), ty = touch->y();
             if (tx >= 3 && tx < 107 && ty >= 31 && ty < 50) hpRowTap = true; // HP row only
         }
-        if (hpRowTap && !g_statsTapHeld) g_statsHud = !g_statsHud; // toggle on the press edge
+        if (hpRowTap && !g_statsTapHeld) g_healthBar = !g_healthBar; // toggle on the press edge
         g_statsTapHeld = hpRowTap;
 
         if (touch && touch->isPressed())
@@ -1132,15 +1131,16 @@ namespace FlipWorld
 
     static void player_render(Entity *self, Draw *draw, Game *game)
     {
-        // Player name floated above the sprite (raised to 36px to make room for the
-        // health bar tucked under it). White so it's distinct from the red enemy-health
+        // Player name floated above the sprite (raised to 40px so the health bar tucked
+        // under it never overlays it). White so it's distinct from the red enemy-health
         // labels and the green stat HUD.
-        draw_username(game, self->position, fw_player_name, 36, 0xFFFF);
-        // Quick-glance health bar directly under the name — always shown.
-        draw_player_healthbar(game, self->position, self->health, self->max_health, 24);
-        // Detailed HP/LVL/XP HUD — tap it to toggle (state persisted by the launcher).
-        if (g_statsHud)
-            draw_user_stats(self, Vector(5, 34), game); // fixed HUD at top (below the header)
+        draw_username(game, self->position, fw_player_name, 40, 0xFFFF);
+        // Quick-glance health bar directly under the name — tap the HUD's HP line to
+        // toggle it (state persisted by the launcher).
+        if (g_healthBar)
+            draw_player_healthbar(game, self->position, self->health, self->max_health, 24);
+        // Detailed HP/LVL/XP HUD — always shown.
+        draw_user_stats(self, Vector(5, 34), game); // fixed HUD at top (below the header)
     }
 
     void player_spawn(Level *level, const char *name, Vector position)

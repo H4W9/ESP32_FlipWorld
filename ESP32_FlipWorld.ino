@@ -328,16 +328,20 @@ static void battInit() {
   Serial.println(g_battOk ? F("[Battery] MAX17048 OK") : F("[Battery] MAX17048 not found"));
 }
 static void battUpdate() {
-  if (!g_battOk) return;
+  // Read the SOC register. A transient I2C failure must NOT permanently disable the
+  // gauge (it shares the bus with the touch controller, so the odd read fails) — we
+  // just skip this tick and keep the last good %, then retry. g_battOk only reflects
+  // whether the most recent read succeeded, and a success re-enables it.
+  g_battMs = millis();                       // throttle attempts (success OR fail) to the 10s interval
   Wire.beginTransmission(0x36);
   Wire.write(0x04);                          // SOC register
   if (Wire.endTransmission(false) != 0) { g_battOk = false; return; }
   Wire.requestFrom((uint8_t)0x36, (uint8_t)2);
-  if (Wire.available() < 2) return;
+  if (Wire.available() < 2) { g_battOk = false; return; }
   uint8_t hi = Wire.read();
   Wire.read();                               // fractional byte — discard
   g_battPct = (hi > 100) ? 100 : hi;
-  g_battMs  = millis();
+  g_battOk  = true;                          // a good reading (recovers from a bad init)
 }
 
 // True while a saved-network connect attempt is in flight (header icon = yellow).
@@ -357,7 +361,9 @@ static void wifiArc(TFT_eSPI *g, int cx, int cy, int r, uint16_t c) {
 // Draw the shared status corner (battery % + WiFi arc icon) onto any target — the
 // panel for the menus, the off-screen canvas for the in-game header — so they match.
 static void drawStatusCorner(TFT_eSPI *g) {
-  if (g_battOk && (g_battMs == 0 || millis() - g_battMs > 10000)) battUpdate();
+  // Always retry on the interval (never gated on g_battOk) so a gauge that missed the
+  // initial probe, or dropped out on a transient bus glitch, recovers on its own.
+  if (g_battMs == 0 || millis() - g_battMs > 10000) battUpdate();
   int rx = SCRW - 4;
   if (g_battPct >= 0) {
     char pct[8];
@@ -1372,20 +1378,21 @@ static void fwSetUnlockedCount(int n) {
   f.close();
 }
 
-// In-game detailed stats HUD visibility (toggled by tapping it), persisted on SPIFFS.
+// In-game floating health-bar visibility (toggled by tapping the HUD's HP line),
+// persisted on SPIFFS.
 static const char *FW_UI_FILE = "/flipworld_ui.json";
-static bool fwStatsHudLoad() {
+static bool fwHealthBarLoad() {
   File f = SPIFFS.open(FW_UI_FILE, FILE_READ);
   if (!f) return true;                 // default: shown
   JsonDocument d;
   DeserializationError e = deserializeJson(d, f);
   f.close();
   if (e) return true;
-  return d["statsHud"] | true;
+  return d["healthBar"] | true;
 }
-static void fwStatsHudSave(bool on) {
+static void fwHealthBarSave(bool on) {
   JsonDocument d;
-  d["statsHud"] = on;
+  d["healthBar"] = on;
   File f = SPIFFS.open(FW_UI_FILE, FILE_WRITE);
   if (!f) return;
   serializeJson(d, f);
@@ -1516,9 +1523,9 @@ static void playMaps(int startIndex, bool campaign) {
   FWStats runStats; runStats.valid = false;   // latest progression, synced once on exit
   float xpBudget = 0;                          // max XP the maps played this run can yield
 
-  // Restore the stats-HUD visibility the player last chose (tap-toggle in-game).
-  bool statsHud = fwStatsHudLoad();
-  FlipWorld::fw_set_stats_hud(statsHud);
+  // Restore the health-bar visibility the player last chose (tap-toggle in-game).
+  bool healthBar = fwHealthBarLoad();
+  FlipWorld::fw_set_health_bar(healthBar);
 
   for (;;) {
     xpBudget += FW_MAP_MAXXP[mapIndex];        // account for the map about to be played
@@ -1566,10 +1573,10 @@ static void playMaps(int startIndex, bool campaign) {
       fwCanvasHeader(canvas, FW_WORLD_NAMES[mapIndex]);
       fwDrawMinimap(canvas, level, game);
       draw->swap();
-      // Persist the stats-HUD toggle the moment the player flips it in-game.
-      if (FlipWorld::fw_get_stats_hud() != statsHud) {
-        statsHud = FlipWorld::fw_get_stats_hud();
-        fwStatsHudSave(statsHud);
+      // Persist the health-bar toggle the moment the player flips it in-game.
+      if (FlipWorld::fw_get_health_bar() != healthBar) {
+        healthBar = FlipWorld::fw_get_health_bar();
+        fwHealthBarSave(healthBar);
       }
       if (fwLivingEnemies(level) == 0) { cleared = true; exiting = true; break; }
       delay(1);   // minimal yield (WDT); the swap() push already paces the frame rate
