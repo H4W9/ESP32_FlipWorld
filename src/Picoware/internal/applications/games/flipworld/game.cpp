@@ -530,7 +530,7 @@ namespace FlipWorld
                 float sp = 2.8f;
                 g_fbActive = true; g_fbX = mx; g_fbY = my;
                 g_fbDX = dx / dist * sp; g_fbDY = dy / dist * sp;
-                g_dragonFireCd = 0.9f; // shorter cooldown → many more fireballs
+                g_dragonFireCd = 0.2f; // shorter cooldown → many more fireballs
             }
         }
         if (g_fbActive)
