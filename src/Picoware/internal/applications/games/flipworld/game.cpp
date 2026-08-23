@@ -465,8 +465,11 @@ namespace FlipWorld
     static float g_dragonBaseY = 0;   // the horizontal path height
     static float g_dragonPhase = 0;   // vertical-wobble phase
     static float g_dragonFireCd = 0;  // seconds until it may fire again
-    static bool  g_fbActive = false;  // is a fireball in flight
-    static float g_fbX = 0, g_fbY = 0, g_fbDX = 0, g_fbDY = 0;
+    // Up to 3 fireballs may be in flight at once — the dragon can loose the next before
+    // the previous ones land.
+    static const int DRAGON_FB_MAX = 3;
+    static bool  g_fbAct[DRAGON_FB_MAX] = {false, false, false};
+    static float g_fbX[DRAGON_FB_MAX], g_fbY[DRAGON_FB_MAX], g_fbDX[DRAGON_FB_MAX], g_fbDY[DRAGON_FB_MAX];
     static int   g_dragonTurns = 0;   // defensive turns used (max 3)
     static float g_dragonMoveDir = -1; // patrol direction (+1 right / -1 left)
     static float g_dragonMeleeCd = 0; // seconds until it may bite the player again
@@ -505,7 +508,7 @@ namespace FlipWorld
 
     static void dragon_update(Entity *self, Game *game)
     {
-        if (self->state == ENTITY_DEAD) { g_fbActive = false; return; }
+        if (self->state == ENTITY_DEAD) { for (int i = 0; i < DRAGON_FB_MAX; i++) g_fbAct[i] = false; return; }
         const float dt = 1.0f / 30;
         Level *lvl = game->current_level;
         if (!lvl) return;
@@ -588,7 +591,14 @@ namespace FlipWorld
         // and only from a reasonable distance so the player can react.
         if (g_dragonFireCd > 0) g_dragonFireCd -= dt;
         float cx = self->position.x + self->size.x / 2, cy = self->position.y + self->size.y / 2;
-        if (!g_fbActive && g_dragonFireCd <= 0 && player)
+        int fbCount = 0, freeSlot = -1;
+        for (int i = 0; i < DRAGON_FB_MAX; i++)
+        {
+            if (g_fbAct[i]) fbCount++;
+            else if (freeSlot < 0) freeSlot = i;
+        }
+        // Loose another fireball whenever the cooldown is up and fewer than 3 are aloft.
+        if (freeSlot >= 0 && fbCount < DRAGON_FB_MAX && g_dragonFireCd <= 0 && player)
         {
             bool facingRight = self->direction.x >= 0;
             float mx = facingRight ? (self->position.x + self->size.x - 2) : (self->position.x + 2);
@@ -599,28 +609,29 @@ namespace FlipWorld
             if (inArc && dist > 30 && dist < 500)
             {
                 float sp = 3.3f;
-                g_fbActive = true; g_fbX = mx; g_fbY = my;
-                g_fbDX = dx / dist * sp; g_fbDY = dy / dist * sp;
+                g_fbAct[freeSlot] = true; g_fbX[freeSlot] = mx; g_fbY[freeSlot] = my;
+                g_fbDX[freeSlot] = dx / dist * sp; g_fbDY[freeSlot] = dy / dist * sp;
                 g_dragonFireCd = 0.2f; // shorter cooldown → many more fireballs
             }
         }
-        if (g_fbActive)
+        for (int i = 0; i < DRAGON_FB_MAX; i++)
         {
-            g_fbX += g_fbDX; g_fbY += g_fbDY;
-            if (g_fbX < 0 || g_fbY < 0 || g_fbX > lvl->size.x || g_fbY > lvl->size.y)
-                g_fbActive = false;
-            else if (fb_hit_enemy(lvl, g_fbX, g_fbY, self)) // a fireball also incinerates foes
-                g_fbActive = false;
-            else if (icon_ignite_at(lvl, g_fbX, g_fbY)) // …and sets houses/trees ablaze
-                g_fbActive = false;
+            if (!g_fbAct[i]) continue;
+            g_fbX[i] += g_fbDX[i]; g_fbY[i] += g_fbDY[i];
+            if (g_fbX[i] < 0 || g_fbY[i] < 0 || g_fbX[i] > lvl->size.x || g_fbY[i] > lvl->size.y)
+                g_fbAct[i] = false;
+            else if (fb_hit_enemy(lvl, g_fbX[i], g_fbY[i], self)) // a fireball also incinerates foes
+                g_fbAct[i] = false;
+            else if (icon_ignite_at(lvl, g_fbX[i], g_fbY[i])) // …and sets houses/trees ablaze
+                g_fbAct[i] = false;
             else if (player)
             {
                 float px = player->position.x + player->size.x / 2, py = player->position.y + player->size.y / 2;
-                float ddx = g_fbX - px, ddy = g_fbY - py;
+                float ddx = g_fbX[i] - px, ddy = g_fbY[i] - py;
                 if (ddx * ddx + ddy * ddy < 100) // ~10px hit radius
                 {
                     player->health -= 25;
-                    g_fbActive = false;
+                    g_fbAct[i] = false;
                     if (player->health <= 0)
                     {
                         player->state = ENTITY_DEAD;
@@ -703,9 +714,10 @@ namespace FlipWorld
         char hs[24];
         snprintf(hs, sizeof(hs), "DRAGON %.0f", (double)self->health);
         draw_username(game, self->position, hs, (int)self->size.y + 4, 0xFD20);
-        if (g_fbActive)
+        for (int i = 0; i < DRAGON_FB_MAX; i++)
         {
-            int sx = (int)(g_fbX - game->pos.x), sy = (int)(g_fbY - game->pos.y);
+            if (!g_fbAct[i]) continue;
+            int sx = (int)(g_fbX[i] - game->pos.x), sy = (int)(g_fbY[i] - game->pos.y);
             game->draw->display->fillCircle(sx, sy, 4, 0xFD20); // orange fireball
             game->draw->display->fillCircle(sx, sy, 2, 0xFFE0); // hot core
         }
@@ -733,7 +745,7 @@ namespace FlipWorld
         g_dragonBaseY = pos.y;
         g_dragonPhase = 0;
         g_dragonFireCd = 1.5f;      // brief grace before the first fireball
-        g_fbActive = false;
+        for (int i = 0; i < DRAGON_FB_MAX; i++) g_fbAct[i] = false;
         g_dragonTurns = 0;          // 3 defensive turns available over the fight
         g_dragonMoveDir = -1;       // start flying left
         g_dragonMeleeCd = 0;
@@ -748,10 +760,23 @@ namespace FlipWorld
     static float g_flyDir = 1, g_flyY = 0, g_flyFireCd = 0, g_flyTX = 0, g_flyTY = 0;
     static bool  g_flyFbActive = false, g_flyFired = false, g_flyDone = false;
     static float g_flyFbX = 0, g_flyFbY = 0, g_flyFbDX = 0, g_flyFbDY = 0;
-    // Burn mode targets (houses/trees), fired at in flight order.
-    static float g_flyBurnX[4], g_flyBurnY[4];
-    static int   g_flyBurnN = 0, g_flyBurnI = 0;
+    // Burn mode: torch flammable icons the dragon passes, up to g_flyBurnN of them.
+    static int   g_flyBurnN = 0, g_flyBurnI = 0; // target count / burned-so-far
     static float g_flyMeleeCd = 0; // seconds until the cameo dragon may bite again
+
+    // Nearest un-burnt flammable icon (tree/plant/flower/house) within maxDist of (x,y).
+    static Entity *nearest_flammable(Level *lvl, float x, float y, float maxDist)
+    {
+        Entity *best = nullptr; float bd = maxDist * maxDist;
+        for (int i = 0; i < lvl->getEntityCount(); i++)
+        {
+            Entity *e = lvl->getEntity(i);
+            if (!e || e->type != ENTITY_ICON || e->burn_kind == 0 || e->on_fire > 0) continue;
+            float dx = e->position.x + e->size.x / 2 - x, dy = e->position.y + e->size.y / 2 - y, d = dx * dx + dy * dy;
+            if (d < bd) { bd = d; best = e; }
+        }
+        return best;
+    }
 
     static Entity *nearest_icon(Level *lvl, float tx, float ty)
     {
@@ -829,12 +854,18 @@ namespace FlipWorld
                 if (dd > 1 && dragon_fire_arc(facingRight, px - cx, py - cy))
                 { g_flyFbActive = true; g_flyFbX = mx; g_flyFbY = my; float sp = 3.1f; g_flyFbDX = dx / dd * sp; g_flyFbDY = dy / dd * sp; g_flyFireCd = 1.3f; }
             }
-            else if (g_flyMode == 1 && g_flyBurnI < g_flyBurnN &&
-                     fabsf(cx - g_flyBurnX[g_flyBurnI]) < 160)
+            else if (g_flyMode == 1 && g_flyBurnI < g_flyBurnN)
             {
-                g_flyTX = g_flyBurnX[g_flyBurnI]; g_flyTY = g_flyBurnY[g_flyBurnI]; // current target
-                float dx = g_flyTX - mx, dy = g_flyTY - my, dd = sqrtf(dx * dx + dy * dy);
-                if (dd > 1) { g_flyFbActive = true; g_flyFbX = mx; g_flyFbY = my; float sp = 3.0f; g_flyFbDX = dx / dd * sp; g_flyFbDY = dy / dd * sp; }
+                // Auto-target the nearest un-burnt tree/flower/house within reach and
+                // breathe fire onto it, so it torches things all along its pass.
+                Entity *tgt = nearest_flammable(lvl, cx, cy, 240);
+                if (tgt)
+                {
+                    g_flyTX = tgt->position.x + tgt->size.x / 2;
+                    g_flyTY = tgt->position.y + tgt->size.y / 2;
+                    float dx = g_flyTX - mx, dy = g_flyTY - my, dd = sqrtf(dx * dx + dy * dy);
+                    if (dd > 1) { g_flyFbActive = true; g_flyFbX = mx; g_flyFbY = my; float sp = 4.0f; g_flyFbDX = dx / dd * sp; g_flyFbDY = dy / dd * sp; }
+                }
             }
         }
         if (g_flyFbActive)
@@ -879,6 +910,13 @@ namespace FlipWorld
             }
         }
 
+        // Burn run: once it's torched its quota, it leaves (undefeated) right away.
+        if (g_flyMode == 1 && g_flyBurnN > 0 && g_flyBurnI >= g_flyBurnN)
+        {
+            g_flyDone = true; self->is_active = false; g_flyFbActive = false;
+            return;
+        }
+
         // count passes; leave undefeated after the last one
         float margin = self->size.x + 20;
         if ((g_flyDir > 0 && nx > lvl->size.x + 20) || (g_flyDir < 0 && nx < -margin))
@@ -900,9 +938,11 @@ namespace FlipWorld
         }
     }
 
-    // targets = x,y pairs for burn mode (mode 1); nTargets = how many (0 for mode 0).
-    void flyby_dragon_spawn(Level *level, int passes, int mode, const float *targets, int nTargets)
+    // mode 1 (burn) torches up to `burnCount` nearby flammable icons over its passes;
+    // mode 0 (attack) ignores it. The old fixed-target list is gone — it auto-targets.
+    void flyby_dragon_spawn(Level *level, int passes, int mode, const float *targets, int burnCount)
     {
+        (void)targets; // legacy param, no longer used
         PlayerContext dl = player_context_get("dragon", true);
         PlayerContext dr = player_context_get("dragon", false);
         if (dl.data == NULL || dr.data == NULL)
@@ -919,17 +959,8 @@ namespace FlipWorld
         g_flyFireCd = 0.6f; g_flyFbActive = false; g_flyFired = false; g_flyDone = false;
         g_flyMeleeCd = 0;
         g_flyTX = 0; g_flyTY = 0;
-        // copy + sort burn targets by ascending x (fired in flight order, left→right)
-        g_flyBurnN = (nTargets > 4) ? 4 : nTargets;
+        g_flyBurnN = burnCount; // how many icons to set ablaze over the run
         g_flyBurnI = 0;
-        for (int i = 0; i < g_flyBurnN; i++) { g_flyBurnX[i] = targets[i * 2]; g_flyBurnY[i] = targets[i * 2 + 1]; }
-        for (int i = 0; i < g_flyBurnN; i++)
-            for (int j = i + 1; j < g_flyBurnN; j++)
-                if (g_flyBurnX[j] < g_flyBurnX[i])
-                {
-                    float tx = g_flyBurnX[i]; g_flyBurnX[i] = g_flyBurnX[j]; g_flyBurnX[j] = tx;
-                    float ty = g_flyBurnY[i]; g_flyBurnY[i] = g_flyBurnY[j]; g_flyBurnY[j] = ty;
-                }
         level->entity_add(d);
     }
 

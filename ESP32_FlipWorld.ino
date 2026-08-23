@@ -1537,12 +1537,10 @@ static void playMaps(int startIndex, bool campaign) {
     game->level_add(level);
     FlipWorld::icon_spawn_json(level, FW_WORLD_JSON[mapIndex]);
     FlipWorld::enemy_spawn_json(level, FW_WORLD_JSON[mapIndex]);
-    // Cameo dragon fly-bys (undefeated): burn targets on 1 pass, or strafe the player
-    // over 2 passes, then leave.
-    static const float VILLAGE_HOUSE[] = {584, 56};
-    static const float MEADOW_TREES[]  = {680, 60, 680, 130}; // two trees on the column
-    if (mapIndex == 3)  FlipWorld::flyby_dragon_spawn(level, 1, 1, MEADOW_TREES, 2);   // Meadow: 2 trees
-    else if (mapIndex == 7)  FlipWorld::flyby_dragon_spawn(level, 1, 1, VILLAGE_HOUSE, 1); // Village: a house
+    // Cameo dragon fly-bys (undefeated): torch flammable objects over its passes, or
+    // strafe the player over 2 passes, then leave.
+    if (mapIndex == 3)  FlipWorld::flyby_dragon_spawn(level, 2, 1, nullptr, 7);   // Meadow: burn 7 trees/flowers
+    else if (mapIndex == 7)  FlipWorld::flyby_dragon_spawn(level, 2, 1, nullptr, 6); // Village: burn 6 objects
     else if (mapIndex == 11 || mapIndex == 14 || mapIndex == 19 || mapIndex == 22)
         FlipWorld::flyby_dragon_spawn(level, 2, 0, nullptr, 0); // Shadow Keep/Ruins/Crater/Serpent Marsh
     if (mapIndex == FW_WORLD_COUNT - 1) FlipWorld::dragon_spawn(level); // boss in the last world
