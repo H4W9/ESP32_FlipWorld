@@ -191,30 +191,19 @@ namespace FlipWorld
     static void icon_burn_render(Entity *self, Draw *draw, Game *game)
     {
         if (self->on_fire <= 0) return;
+        // The original full-size blaze: a row of wide flames across the object's whole
+        // width (houses AND foliage), same look the standalone fire effect used to draw.
         int bx = (int)(self->position.x - game->pos.x);
         int by = (int)(self->position.y - game->pos.y);
         uint32_t t = millis();
-        if (self->burn_kind == 2)
+        int flames = (int)(self->size.x / 8);
+        if (flames < 1) flames = 1;
+        for (int i = 0; i < flames; i++)
         {
-            // House: a row of wide flames across the whole width.
-            int flames = (int)(self->size.x / 8);
-            if (flames < 1) flames = 1;
-            for (int i = 0; i < flames; i++)
-            {
-                int fxp = bx + i * 8 + 3;
-                int flick = (int)((sinf(t * 0.02f + i * 1.3f) * 0.5f + 0.5f) * 8);
-                draw->display->fillCircle(fxp, by - flick, 4, 0xFC00);     // orange flame
-                draw->display->fillCircle(fxp, by - 4 - flick, 2, 0xFFE0); // hot yellow tip
-            }
-        }
-        else
-        {
-            // Foliage: a single small flame, only 3 px wide, licking up from the plant.
-            int fxp = bx + (int)(self->size.x / 2);
-            int baseY = by + (int)(self->size.y * 0.35f);
-            int fh = 5 + (int)((sinf(t * 0.02f) * 0.5f + 0.5f) * 4);
-            draw->display->fillRect(fxp - 1, baseY - fh, 3, fh, 0xFC00); // 3px orange flame
-            draw->display->fillCircle(fxp, baseY - fh, 1, 0xFFE0);       // 3px yellow tip
+            int fxp = bx + i * 8 + 3;
+            int flick = (int)((sinf(t * 0.02f + i * 1.3f) * 0.5f + 0.5f) * 8);
+            draw->display->fillCircle(fxp, by - flick, 4, 0xFC00);     // orange flame
+            draw->display->fillCircle(fxp, by - 4 - flick, 2, 0xFFE0); // hot yellow tip
         }
     }
 
@@ -231,6 +220,7 @@ namespace FlipWorld
             {
                 e->on_fire = 0.0001f;      // just alight
                 e->elapsed_attack_timer = 0;
+                e->ink_color = 0xF800;     // glows red the moment it catches fire
                 return true;
             }
         }

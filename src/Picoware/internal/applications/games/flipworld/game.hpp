@@ -18,4 +18,6 @@ namespace FlipWorld
     void flyby_dragon_spawn(Level *level, int passes, int mode, const float *targets, int nTargets); // cameo dragon (0=fire at player, 1=burn targets)
     void player_spawn(Level *level, const char *name, Vector position);
     void set_player_name(const char *name); // name floated above the player
+    void fw_set_stats_hud(bool on);         // show/hide the detailed stats HUD (persisted by launcher)
+    bool fw_get_stats_hud();                // current stats-HUD visibility (for persistence)
 }

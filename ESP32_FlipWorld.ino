@@ -1372,6 +1372,26 @@ static void fwSetUnlockedCount(int n) {
   f.close();
 }
 
+// In-game detailed stats HUD visibility (toggled by tapping it), persisted on SPIFFS.
+static const char *FW_UI_FILE = "/flipworld_ui.json";
+static bool fwStatsHudLoad() {
+  File f = SPIFFS.open(FW_UI_FILE, FILE_READ);
+  if (!f) return true;                 // default: shown
+  JsonDocument d;
+  DeserializationError e = deserializeJson(d, f);
+  f.close();
+  if (e) return true;
+  return d["statsHud"] | true;
+}
+static void fwStatsHudSave(bool on) {
+  JsonDocument d;
+  d["statsHud"] = on;
+  File f = SPIFFS.open(FW_UI_FILE, FILE_WRITE);
+  if (!f) return;
+  serializeJson(d, f);
+  f.close();
+}
+
 // Count enemies still alive (not yet marked ENTITY_DEAD) in a level.
 static int fwLivingEnemies(Level *level) {
   int n = 0;
@@ -1496,6 +1516,10 @@ static void playMaps(int startIndex, bool campaign) {
   FWStats runStats; runStats.valid = false;   // latest progression, synced once on exit
   float xpBudget = 0;                          // max XP the maps played this run can yield
 
+  // Restore the stats-HUD visibility the player last chose (tap-toggle in-game).
+  bool statsHud = fwStatsHudLoad();
+  FlipWorld::fw_set_stats_hud(statsHud);
+
   for (;;) {
     xpBudget += FW_MAP_MAXXP[mapIndex];        // account for the map about to be played
     Game *game = new Game(
@@ -1542,6 +1566,11 @@ static void playMaps(int startIndex, bool campaign) {
       fwCanvasHeader(canvas, FW_WORLD_NAMES[mapIndex]);
       fwDrawMinimap(canvas, level, game);
       draw->swap();
+      // Persist the stats-HUD toggle the moment the player flips it in-game.
+      if (FlipWorld::fw_get_stats_hud() != statsHud) {
+        statsHud = FlipWorld::fw_get_stats_hud();
+        fwStatsHudSave(statsHud);
+      }
       if (fwLivingEnemies(level) == 0) { cleared = true; exiting = true; break; }
       delay(1);   // minimal yield (WDT); the swap() push already paces the frame rate
     }

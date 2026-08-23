@@ -27,6 +27,15 @@ namespace FlipWorld
         }
         fw_player_name[sizeof(fw_player_name) - 1] = '\0';
     }
+
+    // Whether the detailed stats HUD (top-left HP/LVL/XP box) is shown. Toggled by
+    // tapping the HUD in-game; the launcher persists it across sessions. A floating
+    // health bar under the player's name is always shown regardless.
+    static bool g_statsHud = true;
+    static bool g_statsTapHeld = false; // edge-detect the toggle tap
+    void fw_set_stats_hud(bool on) { g_statsHud = on; }
+    bool fw_get_stats_hud() { return g_statsHud; }
+
     typedef struct
     {
         const char *name;
@@ -207,6 +216,25 @@ namespace FlipWorld
         // black backing box, then the text on top
         game->draw->display->fillRect(sx, sy, strlen(username) * 5 + 4, 10, TFT_BLACK);
         game->draw->text(Vector(sx, sy), username, color);
+    }
+
+    // A little health bar that floats under the player's name. Green → yellow → red as
+    // HP drops; centred on the player like the name, and off-screen-culled the same way.
+    static void draw_player_healthbar(Game *game, Vector pos, float health, float maxHealth, int yOffset)
+    {
+        if (maxHealth <= 0) return;
+        float frac = health / maxHealth;
+        if (frac < 0) frac = 0; if (frac > 1) frac = 1;
+        const int W = 28, H = 4;
+        int sx = (int)(pos.x - game->pos.x) - W / 2;
+        int sy = (int)(pos.y - game->pos.y) - yOffset;
+        if (sx < 0 || sx + W > game->size.x || sy < 0 || sy > game->size.y)
+            return;
+        uint16_t col = (frac > 0.5f) ? 0x07E0 : (frac > 0.25f) ? 0xFFE0 : 0xF800;
+        game->draw->display->fillRect(sx - 1, sy - 1, W + 2, H + 2, TFT_BLACK); // backing
+        game->draw->display->drawRect(sx, sy, W, H, 0xFFFF);                    // white frame
+        int fillW = (int)((W - 2) * frac);
+        if (fillW > 0) game->draw->display->fillRect(sx + 1, sy + 1, fillW, H - 2, col);
     }
 
     static void enemy_render(Entity *self, Draw *draw, Game *game)
@@ -936,6 +964,21 @@ namespace FlipWorld
         float mx = 0, my = 0;
         bool centreTap = false;
         TouchInput *touch = game->input_manager ? game->input_manager->getTouch() : nullptr;
+
+        // Tapping strictly the HP row of the stats HUD (top-left, first line of
+        // draw_user_stats' box) toggles the detailed HUD on/off. Edge-detected so a hold
+        // flips it once. Movement is NOT suppressed — the tap still steers as normal, it
+        // just also flips the HUD. The row stays tappable while hidden, so the same spot
+        // turns it back on.
+        bool hpRowTap = false;
+        if (touch && touch->isPressed())
+        {
+            float tx = touch->x(), ty = touch->y();
+            if (tx >= 3 && tx < 107 && ty >= 31 && ty < 50) hpRowTap = true; // HP row only
+        }
+        if (hpRowTap && !g_statsTapHeld) g_statsHud = !g_statsHud; // toggle on the press edge
+        g_statsTapHeld = hpRowTap;
+
         if (touch && touch->isPressed())
         {
             float w = game->size.x, h = game->size.y;
@@ -1089,11 +1132,15 @@ namespace FlipWorld
 
     static void player_render(Entity *self, Draw *draw, Game *game)
     {
-        // Player name floated well above the sprite (28px) so it clears a nearby
-        // enemy's health label while attacking. White so it's distinct from the red
-        // enemy-health labels and the green stat HUD.
-        draw_username(game, self->position, fw_player_name, 28, 0xFFFF);
-        draw_user_stats(self, Vector(5, 34), game);    // fixed HUD at top (below the header)
+        // Player name floated above the sprite (raised to 36px to make room for the
+        // health bar tucked under it). White so it's distinct from the red enemy-health
+        // labels and the green stat HUD.
+        draw_username(game, self->position, fw_player_name, 36, 0xFFFF);
+        // Quick-glance health bar directly under the name — always shown.
+        draw_player_healthbar(game, self->position, self->health, self->max_health, 24);
+        // Detailed HP/LVL/XP HUD — tap it to toggle (state persisted by the launcher).
+        if (g_statsHud)
+            draw_user_stats(self, Vector(5, 34), game); // fixed HUD at top (below the header)
     }
 
     void player_spawn(Level *level, const char *name, Vector position)
