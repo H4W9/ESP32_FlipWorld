@@ -540,6 +540,163 @@ namespace FlipWorld
         level->entity_add(d);
     }
 
+    // ── Flyby (cameo) dragon ──────────────────────────────────────────────────
+    // An UNDEFEATABLE dragon that streaks across the map: it makes N passes, throws
+    // fire (at the player, or at a house which it sets alight), then leaves. It's an
+    // ENTITY_NPC with no collision, so it can't be hit and never gates the map.
+    static const PROGMEM uint8_t fx_dummy1x1px[1] = {0xFF}; // invisible sprite for effects
+    static int   g_flyPasses = 0, g_flyMode = 0;   // mode 0 = fire at player, 1 = burn house
+    static float g_flyDir = 1, g_flyY = 0, g_flyFireCd = 0, g_flyTX = 0, g_flyTY = 0;
+    static bool  g_flyFbActive = false, g_flyFired = false, g_flyDone = false;
+    static float g_flyFbX = 0, g_flyFbY = 0, g_flyFbDX = 0, g_flyFbDY = 0;
+
+    static Entity *nearest_icon(Level *lvl, float tx, float ty)
+    {
+        Entity *best = nullptr; float bd = 1e18f;
+        for (int i = 0; i < lvl->getEntityCount(); i++)
+        {
+            Entity *e = lvl->getEntity(i);
+            if (e && e->type == ENTITY_ICON)
+            {
+                float dx = e->position.x - tx, dy = e->position.y - ty, d = dx * dx + dy * dy;
+                if (d < bd) { bd = d; best = e; }
+            }
+        }
+        return best;
+    }
+
+    // Animated flames (for a burning house). A standalone persistent entity.
+    static void fire_render(Entity *self, Draw *draw, Game *game)
+    {
+        int bx = (int)(self->position.x - game->pos.x);
+        int by = (int)(self->position.y - game->pos.y);
+        uint32_t t = millis();
+        for (int i = 0; i < 6; i++)
+        {
+            int fx = bx + i * 8;
+            int h = 12 + (int)((sinf(t * 0.02f + i) * 0.5f + 0.5f) * 8);
+            game->draw->display->fillTriangle(fx, by, fx + 6, by, fx + 3, by - h, 0xFC00);       // orange
+            game->draw->display->fillTriangle(fx + 1, by, fx + 5, by, fx + 3, by - h + 5, 0xFFE0); // hot core
+        }
+    }
+    static void spawn_fire(Level *level, Vector pos)
+    {
+        Entity *f = new Entity(level->getBoard(), "fire", ENTITY_ICON, pos, Vector(1, 1),
+                               fx_dummy1x1px, NULL, NULL, NULL, NULL, NULL, fire_render, NULL, true, true);
+        level->entity_add(f);
+    }
+
+    static void flyby_update(Entity *self, Game *game)
+    {
+        const float dt = 1.0f / 30;
+        Level *lvl = game->current_level;
+        if (!lvl) return;
+        if (g_flyDone) { self->is_active = false; g_flyFbActive = false; return; }
+
+        Entity *player = nullptr;
+        for (int i = 0; i < lvl->getEntityCount(); i++)
+        {
+            Entity *e = lvl->getEntity(i);
+            if (e && e->is_player) { player = e; break; }
+        }
+
+        // streak across the map
+        self->direction = (g_flyDir < 0) ? ENTITY_LEFT : ENTITY_RIGHT;
+        float nx = self->position.x + g_flyDir * self->speed * dt;
+        float ny = g_flyY + sinf(millis() * 0.004f) * 8.0f;
+        self->position_set(Vector(nx, ny));
+        float cx = nx + self->size.x / 2, cy = ny + self->size.y / 2;
+
+        // throw fire
+        if (g_flyFireCd > 0) g_flyFireCd -= dt;
+        if (!g_flyFbActive)
+        {
+            if (g_flyMode == 0 && player && g_flyFireCd <= 0)
+            {
+                float px = player->position.x + player->size.x / 2, py = player->position.y + player->size.y / 2;
+                float dx = px - cx, dy = py - cy, dd = sqrtf(dx * dx + dy * dy);
+                if (dd > 1) { g_flyFbActive = true; g_flyFbX = cx; g_flyFbY = cy; float sp = 2.6f; g_flyFbDX = dx / dd * sp; g_flyFbDY = dy / dd * sp; g_flyFireCd = 1.3f; }
+            }
+            else if (g_flyMode == 1 && !g_flyFired && fabsf(cx - g_flyTX) < 160)
+            {
+                float dx = g_flyTX - cx, dy = g_flyTY - cy, dd = sqrtf(dx * dx + dy * dy);
+                if (dd > 1) { g_flyFbActive = true; g_flyFbX = cx; g_flyFbY = cy; float sp = 3.0f; g_flyFbDX = dx / dd * sp; g_flyFbDY = dy / dd * sp; g_flyFired = true; }
+            }
+        }
+        if (g_flyFbActive)
+        {
+            g_flyFbX += g_flyFbDX; g_flyFbY += g_flyFbDY;
+            bool off = (g_flyFbX < 0 || g_flyFbY < 0 || g_flyFbX > lvl->size.x || g_flyFbY > lvl->size.y);
+            if (g_flyMode == 0 && player)
+            {
+                float px = player->position.x + player->size.x / 2, py = player->position.y + player->size.y / 2;
+                float ex = g_flyFbX - px, ey = g_flyFbY - py;
+                if (ex * ex + ey * ey < 100)
+                {
+                    player->health -= 25; g_flyFbActive = false;
+                    if (player->health <= 0)
+                    {
+                        player->state = ENTITY_DEAD; player->health = player->max_health;
+                        player->position = player->start_position; player->position_set(player->start_position);
+                    }
+                    else player->state = ENTITY_ATTACKED;
+                }
+                else if (off) g_flyFbActive = false;
+            }
+            else if (g_flyMode == 1)
+            {
+                float ex = g_flyFbX - g_flyTX, ey = g_flyFbY - g_flyTY;
+                if (ex * ex + ey * ey < 220) // reached the house → set it ablaze
+                {
+                    g_flyFbActive = false;
+                    Entity *h = nearest_icon(lvl, g_flyTX, g_flyTY);
+                    if (h) h->ink_color = 0xF800;              // charred/burning red
+                    spawn_fire(lvl, Vector(g_flyTX - 20, g_flyTY + 8));
+                }
+                else if (off) g_flyFbActive = false;
+            }
+        }
+
+        // count passes; leave undefeated after the last one
+        float margin = self->size.x + 20;
+        if ((g_flyDir > 0 && nx > lvl->size.x + 20) || (g_flyDir < 0 && nx < -margin))
+        {
+            g_flyPasses--;
+            if (g_flyPasses <= 0) { g_flyDone = true; self->is_active = false; g_flyFbActive = false; }
+            else { g_flyDir = -g_flyDir; g_flyFired = false; }
+        }
+    }
+
+    static void flyby_render(Entity *self, Draw *draw, Game *game)
+    {
+        if (g_flyFbActive)
+        {
+            int sx = (int)(g_flyFbX - game->pos.x), sy = (int)(g_flyFbY - game->pos.y);
+            game->draw->display->fillCircle(sx, sy, 4, 0xFD20);
+            game->draw->display->fillCircle(sx, sy, 2, 0xFFE0);
+        }
+    }
+
+    void flyby_dragon_spawn(Level *level, int passes, int mode, float targetX, float targetY)
+    {
+        PlayerContext dl = player_context_get("dragon", true);
+        PlayerContext dr = player_context_get("dragon", false);
+        if (dl.data == NULL || dr.data == NULL)
+            return;
+        Vector pos = Vector(-60, 70);   // start off the left edge, fly in
+        Entity *d = new Entity(level->getBoard(), "FlybyDragon", ENTITY_NPC, pos, dl.size,
+                               dl.data, dl.data, dr.data, NULL, NULL,
+                               flyby_update, flyby_render, NULL, true, true); // no collision → undefeatable
+        d->ink_color = 0xFD20;
+        d->direction = ENTITY_RIGHT;
+        d->speed = 90;                  // fast streak
+        d->health = 1; d->max_health = 1;
+        g_flyPasses = passes; g_flyMode = mode; g_flyDir = 1; g_flyY = pos.y;
+        g_flyFireCd = 0.6f; g_flyFbActive = false; g_flyFired = false; g_flyDone = false;
+        g_flyTX = targetX; g_flyTY = targetY;
+        level->entity_add(d);
+    }
+
     // Update player stats based on XP using iterative method
     static int get_player_level_iterative(uint32_t xp)
     {

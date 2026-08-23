@@ -1513,7 +1513,11 @@ static void playMaps(int startIndex, bool campaign) {
     game->level_add(level);
     FlipWorld::icon_spawn_json(level, FW_WORLD_JSON[mapIndex]);
     FlipWorld::enemy_spawn_json(level, FW_WORLD_JSON[mapIndex]);
-    if (mapIndex == FW_WORLD_COUNT - 1) FlipWorld::dragon_spawn(level); // boss in the last world
+    // Cameo dragon fly-bys (undefeated): Village (7) burns a house on 1 pass;
+    // Shadow Keep (11) & Ruins (14) strafe the player over 2 passes.
+    if (mapIndex == 7)                         FlipWorld::flyby_dragon_spawn(level, 1, 1, 584, 56);
+    else if (mapIndex == 11 || mapIndex == 14) FlipWorld::flyby_dragon_spawn(level, 2, 0, 0, 0);
+    if (mapIndex == FW_WORLD_COUNT - 1)        FlipWorld::dragon_spawn(level); // boss in the last world
 
     FlipWorld::player_spawn(level, "sword", Vector(384, 192));
     FlipWorld::set_player_name(credGet("user").c_str());   // "" → "Player" (offline/guest)
