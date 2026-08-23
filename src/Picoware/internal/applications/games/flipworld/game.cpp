@@ -441,6 +441,7 @@ namespace FlipWorld
     static float g_fbX = 0, g_fbY = 0, g_fbDX = 0, g_fbDY = 0;
     static int   g_dragonTurns = 0;   // defensive turns used (max 3)
     static float g_dragonMoveDir = -1; // patrol direction (+1 right / -1 left)
+    static float g_dragonMeleeCd = 0; // seconds until it may bite the player again
     // Fractions of max health remaining at which the dragon turns to face the player —
     // one per third of health lost, so it flips exactly 3 times over the fight.
     static const float DRAGON_TURN_AT[3] = {0.667f, 0.334f, 0.08f};
@@ -508,10 +509,52 @@ namespace FlipWorld
         else if (nx >= maxX) { nx = maxX; g_dragonMoveDir = -1.0f; }
         self->direction = (g_dragonMoveDir < 0) ? ENTITY_LEFT : ENTITY_RIGHT; // face travel
 
-        // only a slight vertical deviation from the path
+        // Aggression: the path height itself slowly homes toward the player's height
+        // so the dragon keeps closing on you instead of flying a fixed lane. It still
+        // only deviates gently, so it reads as a swooping patrol rather than a chase.
+        if (player)
+        {
+            float wantY = player->position.y + player->size.y / 2 - self->size.y / 2;
+            g_dragonBaseY += (wantY - g_dragonBaseY) * 0.04f; // ease toward the player
+            if (g_dragonBaseY < 8) g_dragonBaseY = 8;
+            float maxY = lvl->size.y - self->size.y - 8;
+            if (g_dragonBaseY > maxY) g_dragonBaseY = maxY;
+        }
+
+        // only a slight vertical deviation from the (now player-seeking) path
         g_dragonPhase += dt;
         float ny = g_dragonBaseY + sinf(g_dragonPhase * 1.6f) * 16.0f;
         self->position_set(Vector(nx, ny));
+
+        // Melee bite: when the player is right in front of the dragon's jaws it snaps
+        // at them for heavy damage on a short cooldown — the fireball is for range, the
+        // bite is for when you crowd it.
+        if (g_dragonMeleeCd > 0) g_dragonMeleeCd -= dt;
+        if (player && g_dragonMeleeCd <= 0)
+        {
+            bool facingRight = self->direction.x >= 0;
+            float mouthX = facingRight ? (self->position.x + self->size.x) : self->position.x;
+            float mouthY = self->position.y + 14; // head/upper front, same as the fire origin
+            float px = player->position.x + player->size.x / 2, py = player->position.y + player->size.y / 2;
+            float ddx = px - mouthX, ddy = py - mouthY;
+            // in front of the facing side, and within jaw reach
+            bool inFront = facingRight ? (px >= self->position.x + self->size.x * 0.4f)
+                                       : (px <= self->position.x + self->size.x * 0.6f);
+            if (inFront && ddx * ddx + ddy * ddy < 52.0f * 52.0f)
+            {
+                player->health -= self->strength;
+                g_dragonMeleeCd = 0.6f;
+                if (player->health <= 0)
+                {
+                    player->state = ENTITY_DEAD;
+                    player->health = player->max_health;
+                    player->position = player->start_position;
+                    player->position_set(player->start_position);
+                }
+                else
+                    player->state = ENTITY_ATTACKED;
+            }
+        }
 
         // Fireball: only toward the 180° arc IN FRONT of the dragon (its facing side),
         // and only from a reasonable distance so the player can react.
@@ -525,7 +568,7 @@ namespace FlipWorld
             float px = player->position.x + player->size.x / 2, py = player->position.y + player->size.y / 2;
             float dx = px - mx, dy = py - my, dist = sqrtf(dx * dx + dy * dy);
             bool inArc = dragon_fire_arc(facingRight, px - cx, py - cy); // clock-position arc
-            if (inArc && dist > 50 && dist < 500)
+            if (inArc && dist > 30 && dist < 500)
             {
                 float sp = 2.8f;
                 g_fbActive = true; g_fbX = mx; g_fbY = my;
@@ -588,9 +631,9 @@ namespace FlipWorld
                                dragon_update, dragon_render, enemy_collision, true, true);
         d->ink_color = 0xFD20;      // orange boss (distinct from red foes)
         d->direction = ENTITY_LEFT; // starts facing left; player attacks from the right
-        d->speed = 55;
+        d->speed = 80;              // patrols briskly — aggressive pursuit
         d->attack_timer = 0.8f;
-        d->strength = 30;           // melee if the player closes in
+        d->strength = 40;           // heavy bite when the player closes in
         d->health = 1000;
         d->max_health = 1000;
         d->start_position = pos;
@@ -601,6 +644,7 @@ namespace FlipWorld
         g_fbActive = false;
         g_dragonTurns = 0;          // 3 defensive turns available over the fight
         g_dragonMoveDir = -1;       // start flying left
+        g_dragonMeleeCd = 0;
         level->entity_add(d);
     }
 

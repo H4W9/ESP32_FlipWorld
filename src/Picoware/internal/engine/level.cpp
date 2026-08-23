@@ -237,17 +237,12 @@ namespace Picoware
             Entity *ent = entities[i];
             if (ent != nullptr && ent->is_active)
             {
-                if (!game->draw->is8bit())
-                {
-                    float old_screen_x = ent->old_position.x - game->old_pos.x;
-                    float old_screen_y = ent->old_position.y - game->old_pos.y;
-
-                    if (!(old_screen_x + ent->size.x < 0 || old_screen_x > game->size.x ||
-                          old_screen_y + ent->size.y < 0 || old_screen_y > game->size.y))
-                    {
-                        game->draw->clear(Vector(old_screen_x, old_screen_y), ent->size, game->bg_color);
-                    }
-                }
+                // NOTE: the per-entity "clear old position" pass the engine normally does
+                // here is intentionally omitted — the FlipWorld launcher wipes the whole
+                // canvas to the background every frame, so clearing each entity's old
+                // rect is redundant AND harmful: a later entity (e.g. the big dragon)
+                // would black out its old rect ON TOP of sprites already drawn this pass,
+                // hiding them behind a rectangle.
 
                 if (!ent->is_visible)
                 {
