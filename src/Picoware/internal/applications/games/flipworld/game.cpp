@@ -66,6 +66,21 @@ namespace FlipWorld
             return;
         }
 
+        // On fire (hit by a fireball): burn down rapidly, then die in a puff.
+        if (self->on_fire > 0)
+        {
+            self->health -= 6; // ~180 hp/sec at 30fps → the health bar visibly plummets
+            if (self->health <= 0)
+            {
+                self->state = ENTITY_DEAD;
+                self->health = 0;
+                self->on_fire = 0;
+                self->position = Vector(-100, -100);
+                self->position_set(self->position);
+                return;
+            }
+        }
+
         // float delta_time = 1.0 / game->fps;
         float delta_time = 1.0 / 30; // 30 frames per second
 
@@ -208,6 +223,21 @@ namespace FlipWorld
             self->position.y + self->size.y < game->pos.y || self->position.y > game->pos.y + game->size.y)
         {
             return;
+        }
+
+        // if ablaze, engulf the enemy in flickering flames
+        if (self->on_fire > 0)
+        {
+            int bx = (int)(self->position.x - game->pos.x);
+            int by = (int)(self->position.y - game->pos.y);
+            int w = (int)self->size.x, h = (int)self->size.y;
+            uint32_t t = millis();
+            for (int fx = 0; fx <= w; fx += 5)
+            {
+                int flick = (int)((sinf(t * 0.03f + fx) * 0.5f + 0.5f) * 7);
+                game->draw->display->fillCircle(bx + fx, by + h - flick - 2, 3, 0xFC00);     // orange
+                game->draw->display->fillCircle(bx + fx, by + h - flick - 6, 2, 0xFFE0);     // hot core
+            }
         }
 
         // draw enemy health just above the enemy (sprite facing is handled in the
@@ -424,21 +454,19 @@ namespace FlipWorld
                            : (ang >= 90.0f || ang <= -120.0f);
     }
 
-    // A fireball incinerates any (non-excluded) living enemy it passes over.
+    // A fireball sets any (non-excluded) living, not-yet-burning enemy it passes over
+    // ablaze — it then burns down rapidly (see enemy_update / enemy_render).
     static bool fb_hit_enemy(Level *lvl, float x, float y, Entity *exclude)
     {
         for (int i = 0; i < lvl->getEntityCount(); i++)
         {
             Entity *e = lvl->getEntity(i);
-            if (!e || e == exclude || e->type != ENTITY_ENEMY || e->state == ENTITY_DEAD)
+            if (!e || e == exclude || e->type != ENTITY_ENEMY || e->state == ENTITY_DEAD || e->on_fire > 0)
                 continue;
             float ex = e->position.x + e->size.x / 2 - x, ey = e->position.y + e->size.y / 2 - y;
             if (ex * ex + ey * ey < 16 * 16)
             {
-                e->state = ENTITY_DEAD;
-                e->health = 0;
-                e->position = Vector(-100, -100);
-                e->position_set(e->position);
+                e->on_fire = 1; // catches fire; enemy_update drains it down
                 return true;
             }
         }

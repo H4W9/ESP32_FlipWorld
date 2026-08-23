@@ -71,6 +71,9 @@ namespace Picoware
         // uses these; they glide the player on the Frozen Lake map.
         float slide_vx = 0;
         float slide_vy = 0;
+        // FlipWorld: >0 = the entity is ablaze (hit by a fireball) — it drains health
+        // rapidly and renders flames until it's destroyed.
+        float on_fire = 0;
 
         // 3D Sprite properties
         Sprite3D *sprite_3d;         // 3D sprite representation (can be null for 2D entities)
