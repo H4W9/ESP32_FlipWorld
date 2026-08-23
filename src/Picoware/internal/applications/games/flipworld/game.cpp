@@ -609,10 +609,13 @@ namespace FlipWorld
     // fire (at the player, or at a house which it sets alight), then leaves. It's an
     // ENTITY_NPC with no collision, so it can't be hit and never gates the map.
     static const PROGMEM uint8_t fx_dummy1x1px[1] = {0xFF}; // invisible sprite for effects
-    static int   g_flyPasses = 0, g_flyMode = 0;   // mode 0 = fire at player, 1 = burn house
+    static int   g_flyPasses = 0, g_flyMode = 0;   // mode 0 = fire at player, 1 = burn targets
     static float g_flyDir = 1, g_flyY = 0, g_flyFireCd = 0, g_flyTX = 0, g_flyTY = 0;
     static bool  g_flyFbActive = false, g_flyFired = false, g_flyDone = false;
     static float g_flyFbX = 0, g_flyFbY = 0, g_flyFbDX = 0, g_flyFbDY = 0;
+    // Burn mode targets (houses/trees), fired at in flight order.
+    static float g_flyBurnX[4], g_flyBurnY[4];
+    static int   g_flyBurnN = 0, g_flyBurnI = 0;
 
     static Entity *nearest_icon(Level *lvl, float tx, float ty)
     {
@@ -715,10 +718,12 @@ namespace FlipWorld
                 if (dd > 1 && dragon_fire_arc(facingRight, px - cx, py - cy))
                 { g_flyFbActive = true; g_flyFbX = mx; g_flyFbY = my; float sp = 2.6f; g_flyFbDX = dx / dd * sp; g_flyFbDY = dy / dd * sp; g_flyFireCd = 1.3f; }
             }
-            else if (g_flyMode == 1 && !g_flyFired && fabsf(cx - g_flyTX) < 160)
+            else if (g_flyMode == 1 && g_flyBurnI < g_flyBurnN &&
+                     fabsf(cx - g_flyBurnX[g_flyBurnI]) < 160)
             {
+                g_flyTX = g_flyBurnX[g_flyBurnI]; g_flyTY = g_flyBurnY[g_flyBurnI]; // current target
                 float dx = g_flyTX - mx, dy = g_flyTY - my, dd = sqrtf(dx * dx + dy * dy);
-                if (dd > 1) { g_flyFbActive = true; g_flyFbX = mx; g_flyFbY = my; float sp = 3.0f; g_flyFbDX = dx / dd * sp; g_flyFbDY = dy / dd * sp; g_flyFired = true; }
+                if (dd > 1) { g_flyFbActive = true; g_flyFbX = mx; g_flyFbY = my; float sp = 3.0f; g_flyFbDX = dx / dd * sp; g_flyFbDY = dy / dd * sp; }
             }
         }
         if (g_flyFbActive)
@@ -745,12 +750,13 @@ namespace FlipWorld
             else if (g_flyMode == 1)
             {
                 float ex = g_flyFbX - g_flyTX, ey = g_flyFbY - g_flyTY;
-                if (ex * ex + ey * ey < 220) // reached the house → set it ablaze
+                if (ex * ex + ey * ey < 220) // reached the target → set it ablaze
                 {
                     g_flyFbActive = false;
                     Entity *h = nearest_icon(lvl, g_flyTX, g_flyTY);
                     if (h) h->ink_color = 0xF800;              // charred/burning red
                     spawn_fire(lvl, Vector(g_flyTX - 20, g_flyTY + 8));
+                    g_flyBurnI++;                              // on to the next target
                 }
                 else if (off) g_flyFbActive = false;
             }
@@ -776,7 +782,8 @@ namespace FlipWorld
         }
     }
 
-    void flyby_dragon_spawn(Level *level, int passes, int mode, float targetX, float targetY)
+    // targets = x,y pairs for burn mode (mode 1); nTargets = how many (0 for mode 0).
+    void flyby_dragon_spawn(Level *level, int passes, int mode, const float *targets, int nTargets)
     {
         PlayerContext dl = player_context_get("dragon", true);
         PlayerContext dr = player_context_get("dragon", false);
@@ -792,7 +799,18 @@ namespace FlipWorld
         d->health = 1; d->max_health = 1;
         g_flyPasses = passes; g_flyMode = mode; g_flyDir = 1; g_flyY = pos.y;
         g_flyFireCd = 0.6f; g_flyFbActive = false; g_flyFired = false; g_flyDone = false;
-        g_flyTX = targetX; g_flyTY = targetY;
+        g_flyTX = 0; g_flyTY = 0;
+        // copy + sort burn targets by ascending x (fired in flight order, left→right)
+        g_flyBurnN = (nTargets > 4) ? 4 : nTargets;
+        g_flyBurnI = 0;
+        for (int i = 0; i < g_flyBurnN; i++) { g_flyBurnX[i] = targets[i * 2]; g_flyBurnY[i] = targets[i * 2 + 1]; }
+        for (int i = 0; i < g_flyBurnN; i++)
+            for (int j = i + 1; j < g_flyBurnN; j++)
+                if (g_flyBurnX[j] < g_flyBurnX[i])
+                {
+                    float tx = g_flyBurnX[i]; g_flyBurnX[i] = g_flyBurnX[j]; g_flyBurnX[j] = tx;
+                    float ty = g_flyBurnY[i]; g_flyBurnY[i] = g_flyBurnY[j]; g_flyBurnY[j] = ty;
+                }
         level->entity_add(d);
     }
 
