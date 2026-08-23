@@ -439,7 +439,8 @@ namespace FlipWorld
     static float g_dragonFireCd = 0;  // seconds until it may fire again
     static bool  g_fbActive = false;  // is a fireball in flight
     static float g_fbX = 0, g_fbY = 0, g_fbDX = 0, g_fbDY = 0;
-    static int   g_dragonTurns = 0;   // how many times it has turned (max 3)
+    static int   g_dragonTurns = 0;   // defensive turns used (max 3)
+    static float g_dragonMoveDir = -1; // patrol direction (+1 right / -1 left)
     // Fractions of max health remaining at which the dragon turns to face the player —
     // one per third of health lost, so it flips exactly 3 times over the fight.
     static const float DRAGON_TURN_AT[3] = {0.667f, 0.334f, 0.08f};
@@ -488,25 +489,24 @@ namespace FlipWorld
             if (e && e->is_player) { player = e; break; }
         }
 
-        // Turn to face the player only at each third of health lost (3 turns total).
-        // Between turns the dragon keeps its facing, so you can safely attack it from
-        // behind (where it can't throw fire — see the front-arc check below).
+        // Defensive turns: as you wear it down (each third of health lost, up to 3
+        // times) it wheels back TOWARD the player to attack mid-flight. After the 3rd
+        // it just keeps patrolling, so you can finish it from behind.
         while (g_dragonTurns < 3 && self->health <= self->max_health * DRAGON_TURN_AT[g_dragonTurns])
         {
-            self->direction = (self->direction.x < 0) ? ENTITY_RIGHT : ENTITY_LEFT; // flip facing
+            if (player) g_dragonMoveDir = (player->position.x < self->position.x) ? -1.0f : 1.0f;
             g_dragonTurns++;
         }
 
-        // Move in the direction it FACES, travelling the whole map, then parking at the
-        // edge (facing only changes on a turn, so movement follows facing — it advances
-        // to an edge and waits there until its next turn).
+        // ALWAYS fly back and forth across the map, bouncing off the edges, until dead.
         const float buffer = 40;
         float minX = buffer, maxX = lvl->size.x - buffer - self->size.x;
         if (maxX < minX) maxX = minX;
         float step = self->speed * dt;
-        float nx = self->position.x + (self->direction.x >= 0 ? step : -step);
-        if (nx < minX) nx = minX;
-        else if (nx > maxX) nx = maxX;
+        float nx = self->position.x + g_dragonMoveDir * step;
+        if (nx <= minX) { nx = minX; g_dragonMoveDir = 1.0f; }
+        else if (nx >= maxX) { nx = maxX; g_dragonMoveDir = -1.0f; }
+        self->direction = (g_dragonMoveDir < 0) ? ENTITY_LEFT : ENTITY_RIGHT; // face travel
 
         // only a slight vertical deviation from the path
         g_dragonPhase += dt;
@@ -525,12 +525,12 @@ namespace FlipWorld
             float px = player->position.x + player->size.x / 2, py = player->position.y + player->size.y / 2;
             float dx = px - mx, dy = py - my, dist = sqrtf(dx * dx + dy * dy);
             bool inArc = dragon_fire_arc(facingRight, px - cx, py - cy); // clock-position arc
-            if (inArc && dist > 90 && dist < 420)
+            if (inArc && dist > 50 && dist < 500)
             {
-                float sp = 2.6f;
+                float sp = 2.8f;
                 g_fbActive = true; g_fbX = mx; g_fbY = my;
                 g_fbDX = dx / dist * sp; g_fbDY = dy / dist * sp;
-                g_dragonFireCd = 2.2f;
+                g_dragonFireCd = 0.9f; // shorter cooldown → many more fireballs
             }
         }
         if (g_fbActive)
@@ -599,7 +599,8 @@ namespace FlipWorld
         g_dragonPhase = 0;
         g_dragonFireCd = 1.5f;      // brief grace before the first fireball
         g_fbActive = false;
-        g_dragonTurns = 0;          // 3 turns available over the fight
+        g_dragonTurns = 0;          // 3 defensive turns available over the fight
+        g_dragonMoveDir = -1;       // start flying left
         level->entity_add(d);
     }
 
