@@ -136,6 +136,116 @@ namespace FlipWorld
         return 0xFFFF;     // neutral white
     }
 
+    // ── Burning world objects ─────────────────────────────────────────────────
+    // Flammable icons (see Entity::burn_kind) manage their own fire: once ignited by a
+    // dragon's fireball, they render flames, singe the player who stands too close,
+    // and — for foliage — char to brown after 10s and can't reignite.
+    static const uint16_t ICON_CHAR_BROWN = 0x5982; // burnt-out foliage
+    static Entity *icon_find_player(Level *lvl)
+    {
+        for (int i = 0; i < lvl->getEntityCount(); i++)
+        {
+            Entity *e = lvl->getEntity(i);
+            if (e && e->is_player) return e;
+        }
+        return nullptr;
+    }
+    static void icon_burn_update(Entity *self, Game *game)
+    {
+        if (self->on_fire <= 0) return; // not alight
+        const float dt = 1.0f / 30;
+        self->on_fire += dt;
+
+        // Foliage burns for 10 s, then chars to brown and becomes inert (can't reignite).
+        if (self->burn_kind == 1 && self->on_fire >= 10.0f)
+        {
+            self->on_fire = 0;
+            self->burn_kind = 0;
+            self->ink_color = ICON_CHAR_BROWN;
+            return;
+        }
+
+        // Singe the player if they linger in the flames (proximity DoT).
+        Level *lvl = game->current_level;
+        if (!lvl) return;
+        Entity *player = icon_find_player(lvl);
+        if (!player) return;
+        float fx = self->position.x + self->size.x / 2, fy = self->position.y + self->size.y / 2;
+        float px = player->position.x + player->size.x / 2, py = player->position.y + player->size.y / 2;
+        float dx = px - fx, dy = py - fy;
+        float rad = (self->burn_kind == 2) ? 26.0f : 16.0f;
+        self->elapsed_attack_timer += dt;
+        if (dx * dx + dy * dy < rad * rad && self->elapsed_attack_timer >= 0.5f)
+        {
+            self->elapsed_attack_timer = 0;
+            player->health -= (self->burn_kind == 2) ? 8 : 5;
+            if (player->health <= 0)
+            {
+                player->state = ENTITY_DEAD; player->health = player->max_health;
+                player->position = player->start_position; player->position_set(player->start_position);
+            }
+            else
+                player->state = ENTITY_ATTACKED;
+        }
+    }
+    static void icon_burn_render(Entity *self, Draw *draw, Game *game)
+    {
+        if (self->on_fire <= 0) return;
+        int bx = (int)(self->position.x - game->pos.x);
+        int by = (int)(self->position.y - game->pos.y);
+        uint32_t t = millis();
+        if (self->burn_kind == 2)
+        {
+            // House: a row of wide flames across the whole width.
+            int flames = (int)(self->size.x / 8);
+            if (flames < 1) flames = 1;
+            for (int i = 0; i < flames; i++)
+            {
+                int fxp = bx + i * 8 + 3;
+                int flick = (int)((sinf(t * 0.02f + i * 1.3f) * 0.5f + 0.5f) * 8);
+                draw->display->fillCircle(fxp, by - flick, 4, 0xFC00);     // orange flame
+                draw->display->fillCircle(fxp, by - 4 - flick, 2, 0xFFE0); // hot yellow tip
+            }
+        }
+        else
+        {
+            // Foliage: a single small flame, only 3 px wide, licking up from the plant.
+            int fxp = bx + (int)(self->size.x / 2);
+            int baseY = by + (int)(self->size.y * 0.35f);
+            int fh = 5 + (int)((sinf(t * 0.02f) * 0.5f + 0.5f) * 4);
+            draw->display->fillRect(fxp - 1, baseY - fh, 3, fh, 0xFC00); // 3px orange flame
+            draw->display->fillCircle(fxp, baseY - fh, 1, 0xFFE0);       // 3px yellow tip
+        }
+    }
+
+    // Public: ignite the flammable icon under a point (used by dragon fireballs).
+    bool icon_ignite_at(Level *level, float x, float y)
+    {
+        for (int i = 0; i < level->getEntityCount(); i++)
+        {
+            Entity *e = level->getEntity(i);
+            if (!e || e->type != ENTITY_ICON || e->burn_kind == 0 || e->on_fire > 0)
+                continue;
+            if (x >= e->position.x && x < e->position.x + e->size.x &&
+                y >= e->position.y && y < e->position.y + e->size.y)
+            {
+                e->on_fire = 0.0001f;      // just alight
+                e->elapsed_attack_timer = 0;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Which burn_kind (if any) a named icon has.
+    static uint8_t icon_burn_kind(const char *name)
+    {
+        if (strcmp(name, "house") == 0) return 2;                    // wide persistent blaze
+        if (strcmp(name, "tree") == 0 || strcmp(name, "plant") == 0 ||
+            strcmp(name, "flower") == 0) return 1;                   // small 10 s blaze
+        return 0;                                                    // inert
+    }
+
     static void icon_spawn(Level *level, const char *name, Vector pos)
     {
         // Get the icon context
@@ -155,6 +265,11 @@ namespace FlipWorld
         // Ice is walkable (the player skates on it) — no collision callback; every
         // other icon blocks the player.
         void (*collisionCb)(Entity *, Entity *, Game *) = (strcmp(name, "ice") == 0) ? nullptr : icon_collision;
+        // Flammable icons (tree/plant/flower/house) get burn callbacks so a dragon's
+        // fireball can set them alight; everything else has no update/render.
+        uint8_t kind = icon_burn_kind(name);
+        void (*updateCb)(Entity *, Game *)        = kind ? icon_burn_update : nullptr;
+        void (*renderCb)(Entity *, Draw *, Game *) = kind ? icon_burn_render : nullptr;
         Entity *newEntity = new Entity(
             level->getBoard(),
             "icon",
@@ -166,13 +281,16 @@ namespace FlipWorld
             NULL,           // sprite_right_data
             NULL,           // start
             NULL,           // stop
-            NULL,           // update
-            NULL,           // render
+            updateCb,       // update (burn tick for flammable icons)
+            renderCb,       // render (flames for flammable icons)
             collisionCb,    // collision (null for walkable ice)
             true,           // is 8-bit
             true            // is progmem
         );
         newEntity->ink_color = icon_ink_color(name); // FlipWorld colour port
+        newEntity->burn_kind = kind;
+        newEntity->on_fire = 0;
+        newEntity->elapsed_attack_timer = 0;
         if (strcmp(name, "flower") == 0)
         {
             // Flowers come in a mix of colours.

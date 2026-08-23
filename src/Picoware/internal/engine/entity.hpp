@@ -71,9 +71,14 @@ namespace Picoware
         // uses these; they glide the player on the Frozen Lake map.
         float slide_vx = 0;
         float slide_vy = 0;
-        // FlipWorld: >0 = the entity is ablaze (hit by a fireball) — it drains health
-        // rapidly and renders flames until it's destroyed.
+        // FlipWorld: >0 = the entity is ablaze (hit by a fireball). For enemies it drains
+        // health rapidly and renders flames until destroyed; for world icons (see
+        // burn_kind) it counts seconds burning so foliage can char after 10s.
         float on_fire = 0;
+        // FlipWorld: flammability of a world icon — 0 = inert (rocks, fences, water),
+        // 1 = foliage (tree/plant/flower: small 3px flame, burns out to brown in 10s and
+        // can't reignite), 2 = house (wide, persistent blaze). Only ENTITY_ICON uses it.
+        uint8_t burn_kind = 0;
 
         // 3D Sprite properties
         Sprite3D *sprite_3d;         // 3D sprite representation (can be null for 2D entities)

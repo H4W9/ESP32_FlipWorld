@@ -533,8 +533,8 @@ namespace FlipWorld
         if (player && g_dragonMeleeCd <= 0)
         {
             bool facingRight = self->direction.x >= 0;
-            float mouthX = facingRight ? (self->position.x + self->size.x) : self->position.x;
-            float mouthY = self->position.y + 17; // open jaw, same as the fire origin
+            float mouthX = facingRight ? (self->position.x + self->size.x - 2) : (self->position.x + 2);
+            float mouthY = self->position.y + 37; // open jaw at the front-bottom of the head
             float px = player->position.x + player->size.x / 2, py = player->position.y + player->size.y / 2;
             float ddx = px - mouthX, ddy = py - mouthY;
             // in front of the facing side, and within jaw reach
@@ -563,8 +563,8 @@ namespace FlipWorld
         if (!g_fbActive && g_dragonFireCd <= 0 && player)
         {
             bool facingRight = self->direction.x >= 0;
-            float mx = facingRight ? (self->position.x + self->size.x - 8) : (self->position.x + 8);
-            float my = self->position.y + 17; // fire from the open jaw (front of the head)
+            float mx = facingRight ? (self->position.x + self->size.x - 2) : (self->position.x + 2);
+            float my = self->position.y + 37; // fire from the open jaw (front-bottom of the head)
             float px = player->position.x + player->size.x / 2, py = player->position.y + player->size.y / 2;
             float dx = px - mx, dy = py - my, dist = sqrtf(dx * dx + dy * dy);
             bool inArc = dragon_fire_arc(facingRight, px - cx, py - cy); // clock-position arc
@@ -582,6 +582,8 @@ namespace FlipWorld
             if (g_fbX < 0 || g_fbY < 0 || g_fbX > lvl->size.x || g_fbY > lvl->size.y)
                 g_fbActive = false;
             else if (fb_hit_enemy(lvl, g_fbX, g_fbY, self)) // a fireball also incinerates foes
+                g_fbActive = false;
+            else if (icon_ignite_at(lvl, g_fbX, g_fbY)) // …and sets houses/trees ablaze
                 g_fbActive = false;
             else if (player)
             {
@@ -685,7 +687,6 @@ namespace FlipWorld
     // An UNDEFEATABLE dragon that streaks across the map: it makes N passes, throws
     // fire (at the player, or at a house which it sets alight), then leaves. It's an
     // ENTITY_NPC with no collision, so it can't be hit and never gates the map.
-    static const PROGMEM uint8_t fx_dummy1x1px[1] = {0xFF}; // invisible sprite for effects
     static int   g_flyPasses = 0, g_flyMode = 0;   // mode 0 = fire at player, 1 = burn targets
     static float g_flyDir = 1, g_flyY = 0, g_flyFireCd = 0, g_flyTX = 0, g_flyTY = 0;
     static bool  g_flyFbActive = false, g_flyFired = false, g_flyDone = false;
@@ -710,56 +711,8 @@ namespace FlipWorld
         return best;
     }
 
-    // Animated flames (for a burning house). A standalone persistent entity.
-    static void fire_render(Entity *self, Draw *draw, Game *game)
-    {
-        int bx = (int)(self->position.x - game->pos.x);
-        int by = (int)(self->position.y - game->pos.y);
-        uint32_t t = millis();
-        for (int i = 0; i < 6; i++)
-        {
-            int fx = bx + i * 8 + 3;
-            int flick = (int)((sinf(t * 0.02f + i * 1.3f) * 0.5f + 0.5f) * 8);
-            game->draw->display->fillCircle(fx, by - flick, 4, 0xFC00);     // orange flame
-            game->draw->display->fillCircle(fx, by - 4 - flick, 2, 0xFFE0); // hot yellow tip
-        }
-    }
-    // Fire burns the player while they stand in it (proximity DoT).
-    static void fire_update(Entity *self, Game *game)
-    {
-        const float dt = 1.0f / 30;
-        Level *lvl = game->current_level;
-        if (!lvl) return;
-        self->elapsed_attack_timer += dt;
-        Entity *player = nullptr;
-        for (int i = 0; i < lvl->getEntityCount(); i++)
-        {
-            Entity *e = lvl->getEntity(i);
-            if (e && e->is_player) { player = e; break; }
-        }
-        if (!player) return;
-        float fx = self->position.x + 24, fy = self->position.y; // centre of the flames
-        float px = player->position.x + player->size.x / 2, py = player->position.y + player->size.y / 2;
-        float dx = px - fx, dy = py - fy;
-        if (dx * dx + dy * dy < 26 * 26 && self->elapsed_attack_timer >= 0.5f) // too close → singe
-        {
-            self->elapsed_attack_timer = 0;
-            player->health -= 8;
-            if (player->health <= 0)
-            {
-                player->state = ENTITY_DEAD; player->health = player->max_health;
-                player->position = player->start_position; player->position_set(player->start_position);
-            }
-            else
-                player->state = ENTITY_ATTACKED;
-        }
-    }
-    static void spawn_fire(Level *level, Vector pos)
-    {
-        Entity *f = new Entity(level->getBoard(), "fire", ENTITY_ICON, pos, Vector(1, 1),
-                               fx_dummy1x1px, NULL, NULL, NULL, NULL, fire_update, fire_render, NULL, true, true);
-        level->entity_add(f);
-    }
+    // Burning world objects (houses/trees) now manage their own flames via the icon
+    // burn system (see icon.cpp: icon_burn_update / icon_burn_render / icon_ignite_at).
 
     static void flyby_update(Entity *self, Game *game)
     {
@@ -784,8 +737,8 @@ namespace FlipWorld
 
         // throw fire — from the mouth (front of the head)
         bool facingRight = (g_flyDir >= 0);
-        float mx = facingRight ? (nx + self->size.x - 8) : (nx + 8);
-        float my = ny + 17; // open jaw (front of the head)
+        float mx = facingRight ? (nx + self->size.x - 2) : (nx + 2);
+        float my = ny + 37; // open jaw (front-bottom of the head)
         if (g_flyFireCd > 0) g_flyFireCd -= dt;
 
         // Melee bite: the attacking cameo dragon also snaps at the player if it streaks
@@ -846,6 +799,7 @@ namespace FlipWorld
                     else player->state = ENTITY_ATTACKED;
                 }
                 else if (fb_hit_enemy(lvl, g_flyFbX, g_flyFbY, self)) g_flyFbActive = false; // also torch foes
+                else if (icon_ignite_at(lvl, g_flyFbX, g_flyFbY)) g_flyFbActive = false;    // …or a house/tree
                 else if (off) g_flyFbActive = false;
             }
             else if (g_flyMode == 1)
@@ -854,9 +808,14 @@ namespace FlipWorld
                 if (ex * ex + ey * ey < 220) // reached the target → set it ablaze
                 {
                     g_flyFbActive = false;
-                    Entity *h = nearest_icon(lvl, g_flyTX, g_flyTY);
-                    if (h) h->ink_color = 0xF800;              // charred/burning red
-                    spawn_fire(lvl, Vector(g_flyTX - 20, g_flyTY + 8));
+                    // Ignite the actual target icon; if the aim was slightly off, torch
+                    // the nearest flammable object to it so a pass never fizzles.
+                    if (!icon_ignite_at(lvl, g_flyTX, g_flyTY))
+                    {
+                        Entity *h = nearest_icon(lvl, g_flyTX, g_flyTY);
+                        if (h) icon_ignite_at(lvl, h->position.x + h->size.x / 2,
+                                              h->position.y + h->size.y / 2);
+                    }
                     g_flyBurnI++;                              // on to the next target
                 }
                 else if (off) g_flyFbActive = false;
