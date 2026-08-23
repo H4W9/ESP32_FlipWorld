@@ -52,6 +52,8 @@ namespace FlipWorld
             return {name, is_left ? enemy_left_ghost_15x15px : enemy_right_ghost_15x15px, Vector(15, 15)};
         if (strcmp(name, "ogre") == 0)
             return {name, is_left ? enemy_left_ogre_10x13px : enemy_right_ogre_10x13px, Vector(10, 13)};
+        if (strcmp(name, "dragon") == 0)
+            return {name, is_left ? enemy_left_dragon_59x44px : enemy_right_dragon_59x44px, Vector(59, 44)};
 
         return {NULL, NULL, Vector(0, 0)};
     }
@@ -396,6 +398,127 @@ namespace FlipWorld
             // Increment the index
             index++;
         }
+    }
+
+    // ── Boss dragon ───────────────────────────────────────────────────────────
+    // Patrols the whole map horizontally (edge buffer), drifts only slightly up/down
+    // from its path, and lobs a fireball at the player from a reactable distance.
+    // Single boss, so its fireball state lives in module statics.
+    static float g_dragonBaseY = 0;   // the horizontal path height
+    static float g_dragonPhase = 0;   // vertical-wobble phase
+    static float g_dragonFireCd = 0;  // seconds until it may fire again
+    static bool  g_fbActive = false;  // is a fireball in flight
+    static float g_fbX = 0, g_fbY = 0, g_fbDX = 0, g_fbDY = 0;
+
+    static void dragon_update(Entity *self, Game *game)
+    {
+        if (self->state == ENTITY_DEAD) { g_fbActive = false; return; }
+        const float dt = 1.0f / 30;
+        Level *lvl = game->current_level;
+        if (!lvl) return;
+
+        // find the player
+        Entity *player = nullptr;
+        for (int i = 0; i < lvl->getEntityCount(); i++)
+        {
+            Entity *e = lvl->getEntity(i);
+            if (e && e->is_player) { player = e; break; }
+        }
+
+        // horizontal patrol across the whole map, keeping a buffer at each edge
+        const float buffer = 40;
+        float minX = buffer, maxX = lvl->size.x - buffer - self->size.x;
+        if (maxX < minX) maxX = minX;
+        float step = self->speed * dt;
+        float nx = self->position.x + (self->direction.x >= 0 ? step : -step);
+        if (nx <= minX) { nx = minX; self->direction = ENTITY_RIGHT; }
+        else if (nx >= maxX) { nx = maxX; self->direction = ENTITY_LEFT; }
+
+        // only a slight vertical deviation from the path
+        g_dragonPhase += dt;
+        float ny = g_dragonBaseY + sinf(g_dragonPhase * 1.6f) * 16.0f;
+        self->position_set(Vector(nx, ny));
+
+        // fireball: fire only from a reasonable distance so the player can react
+        if (g_dragonFireCd > 0) g_dragonFireCd -= dt;
+        float cx = self->position.x + self->size.x / 2, cy = self->position.y + self->size.y / 2;
+        if (!g_fbActive && g_dragonFireCd <= 0 && player)
+        {
+            float px = player->position.x + player->size.x / 2, py = player->position.y + player->size.y / 2;
+            float dx = px - cx, dy = py - cy, dist = sqrtf(dx * dx + dy * dy);
+            if (dist > 90 && dist < 420)
+            {
+                float sp = 2.6f;
+                g_fbActive = true; g_fbX = cx; g_fbY = cy;
+                g_fbDX = dx / dist * sp; g_fbDY = dy / dist * sp;
+                g_dragonFireCd = 2.2f;
+            }
+        }
+        if (g_fbActive)
+        {
+            g_fbX += g_fbDX; g_fbY += g_fbDY;
+            if (g_fbX < 0 || g_fbY < 0 || g_fbX > lvl->size.x || g_fbY > lvl->size.y)
+                g_fbActive = false;
+            else if (player)
+            {
+                float px = player->position.x + player->size.x / 2, py = player->position.y + player->size.y / 2;
+                float ddx = g_fbX - px, ddy = g_fbY - py;
+                if (ddx * ddx + ddy * ddy < 100) // ~10px hit radius
+                {
+                    player->health -= 25;
+                    g_fbActive = false;
+                    if (player->health <= 0)
+                    {
+                        player->state = ENTITY_DEAD;
+                        player->health = player->max_health;
+                        player->position = player->start_position;
+                        player->position_set(player->start_position);
+                    }
+                    else
+                        player->state = ENTITY_ATTACKED;
+                }
+            }
+        }
+    }
+
+    static void dragon_render(Entity *self, Draw *draw, Game *game)
+    {
+        if (self->state == ENTITY_DEAD) return;
+        char hs[24];
+        snprintf(hs, sizeof(hs), "DRAGON %.0f", (double)self->health);
+        draw_username(game, self->position, hs, (int)self->size.y + 4, 0xFD20);
+        if (g_fbActive)
+        {
+            int sx = (int)(g_fbX - game->pos.x), sy = (int)(g_fbY - game->pos.y);
+            game->draw->display->fillCircle(sx, sy, 4, 0xFD20); // orange fireball
+            game->draw->display->fillCircle(sx, sy, 2, 0xFFE0); // hot core
+        }
+    }
+
+    void dragon_spawn(Level *level)
+    {
+        PlayerContext dl = player_context_get("dragon", true);
+        PlayerContext dr = player_context_get("dragon", false);
+        if (dl.data == NULL || dr.data == NULL)
+            return;
+        Vector pos = Vector(360, 100);
+        Entity *d = new Entity(level->getBoard(), "Dragon", ENTITY_ENEMY, pos, dl.size,
+                               dl.data, dl.data, dr.data, NULL, NULL,
+                               dragon_update, dragon_render, enemy_collision, true, true);
+        d->ink_color = 0xFD20;      // orange boss (distinct from red foes)
+        d->direction = ENTITY_RIGHT;
+        d->speed = 55;
+        d->attack_timer = 0.8f;
+        d->strength = 30;           // melee if the player closes in
+        d->health = 1000;
+        d->max_health = 1000;
+        d->start_position = pos;
+        d->end_position = pos;
+        g_dragonBaseY = pos.y;
+        g_dragonPhase = 0;
+        g_dragonFireCd = 1.5f;      // brief grace before the first fireball
+        g_fbActive = false;
+        level->entity_add(d);
     }
 
     // Update player stats based on XP using iterative method

@@ -1338,7 +1338,9 @@ static const char *FW_WORLD_JSON[FW_WORLD_COUNT] = {
 // an impossible jump is rejected. Regenerate with the tools/ script if enemies change.
 static const long FW_MAP_MAXXP[FW_WORLD_COUNT] = {
   1100, 1422, 1400, 1716, 2440, 2342, 2720, 3088, 4420, 4306, 5230, 6032,
-  5378, 5674, 5824, 5824, 7718, 8116, 7828, 8374, 10670, 11538, 11702, 14090 };
+  5378, 5674, 5824, 5824, 7718, 8116, 7828, 8374, 10670, 11538, 11702, 17200 };
+  // ^ last map (Dragon's Lair) includes the boss dragon: 1000hp / 10 str-per-hit
+  //   * 30 xp = ~3000 extra obtainable XP on top of the 8 regular foes (~14090).
 
 // Map-unlock progress (SPIFFS /flipworld_progress.json). "unlocked" = how many maps
 // are playable (>= 1). Clearing a map unlocks the next; the count never regresses.
@@ -1511,6 +1513,7 @@ static void playMaps(int startIndex, bool campaign) {
     game->level_add(level);
     FlipWorld::icon_spawn_json(level, FW_WORLD_JSON[mapIndex]);
     FlipWorld::enemy_spawn_json(level, FW_WORLD_JSON[mapIndex]);
+    if (mapIndex == FW_WORLD_COUNT - 1) FlipWorld::dragon_spawn(level); // boss in the last world
 
     FlipWorld::player_spawn(level, "sword", Vector(384, 192));
     FlipWorld::set_player_name(credGet("user").c_str());   // "" → "Player" (offline/guest)
