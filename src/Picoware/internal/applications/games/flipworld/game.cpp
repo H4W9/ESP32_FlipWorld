@@ -579,10 +579,40 @@ namespace FlipWorld
             game->draw->display->fillCircle(fx, by - 4 - flick, 2, 0xFFE0); // hot yellow tip
         }
     }
+    // Fire burns the player while they stand in it (proximity DoT).
+    static void fire_update(Entity *self, Game *game)
+    {
+        const float dt = 1.0f / 30;
+        Level *lvl = game->current_level;
+        if (!lvl) return;
+        self->elapsed_attack_timer += dt;
+        Entity *player = nullptr;
+        for (int i = 0; i < lvl->getEntityCount(); i++)
+        {
+            Entity *e = lvl->getEntity(i);
+            if (e && e->is_player) { player = e; break; }
+        }
+        if (!player) return;
+        float fx = self->position.x + 24, fy = self->position.y; // centre of the flames
+        float px = player->position.x + player->size.x / 2, py = player->position.y + player->size.y / 2;
+        float dx = px - fx, dy = py - fy;
+        if (dx * dx + dy * dy < 26 * 26 && self->elapsed_attack_timer >= 0.5f) // too close → singe
+        {
+            self->elapsed_attack_timer = 0;
+            player->health -= 8;
+            if (player->health <= 0)
+            {
+                player->state = ENTITY_DEAD; player->health = player->max_health;
+                player->position = player->start_position; player->position_set(player->start_position);
+            }
+            else
+                player->state = ENTITY_ATTACKED;
+        }
+    }
     static void spawn_fire(Level *level, Vector pos)
     {
         Entity *f = new Entity(level->getBoard(), "fire", ENTITY_ICON, pos, Vector(1, 1),
-                               fx_dummy1x1px, NULL, NULL, NULL, NULL, NULL, fire_render, NULL, true, true);
+                               fx_dummy1x1px, NULL, NULL, NULL, NULL, fire_update, fire_render, NULL, true, true);
         level->entity_add(f);
     }
 
