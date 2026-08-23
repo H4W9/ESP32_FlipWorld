@@ -37,14 +37,24 @@ namespace Picoware
         uint16_t y() const noexcept { return py; }
         Vector point() const noexcept { return Vector(px, py); }
 
+        // Multi-touch (FT6336 capacitive reports up to 2 fingers; the resistive
+        // XPT2046 backend is single-touch, so count never exceeds 1 there). Lets the
+        // game read a move-finger and an attack-finger at the same time.
+        uint8_t count() const noexcept { return touchCount; }
+        uint16_t x2() const noexcept { return px2; }
+        uint16_t y2() const noexcept { return py2; }
+        Vector point2() const noexcept { return Vector(px2, py2); }
+
         int lastButton; // BUTTON_* from tap zone this frame, or -1
 
     private:
-        bool readPanel(uint16_t &sx, uint16_t &sy); // raw read + rotation map
+        bool readPanel(uint16_t &sx, uint16_t &sy); // raw read + rotation map (primary)
         TFT_eSPI *tft = nullptr;                    // set => resistive backend
         uint16_t w, h;
         uint8_t rot;
         uint16_t px, py;
+        uint16_t px2 = 0, py2 = 0; // second finger (capacitive only)
+        uint8_t touchCount = 0;    // fingers down this frame (0..2)
         bool pressed;
         bool wasDown;
         uint32_t lastMs;

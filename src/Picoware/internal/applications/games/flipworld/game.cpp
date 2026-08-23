@@ -447,13 +447,13 @@ namespace FlipWorld
     static const float DRAGON_TURN_AT[3] = {0.667f, 0.334f, 0.08f};
 
     // Fire only within the dragon's attack arc (clock positions, screen coords with
-    // +x = 3 o'clock/0°, +y = 6 o'clock/90°): right-facing fires 1→6 o'clock
-    // ([-60°,90°]); left-facing fires 6→11 o'clock (>=90° or <=-120°).
+    // +x = 3 o'clock/0°, +y = 6 o'clock/90°): right-facing fires 1→7 o'clock
+    // ([-60°,120°]); left-facing mirrors it at 5→11 o'clock (>=60° or <=-120°).
     static bool dragon_fire_arc(bool facingRight, float dx, float dy)
     {
         float ang = atan2f(dy, dx) * 57.29578f; // degrees in [-180,180]
-        return facingRight ? (ang >= -60.0f && ang <= 90.0f)
-                           : (ang >= 90.0f || ang <= -120.0f);
+        return facingRight ? (ang >= -60.0f && ang <= 120.0f)
+                           : (ang >= 60.0f || ang <= -120.0f);
     }
 
     // A fireball sets any (non-excluded) living, not-yet-burning enemy it passes over
@@ -534,7 +534,7 @@ namespace FlipWorld
         {
             bool facingRight = self->direction.x >= 0;
             float mouthX = facingRight ? (self->position.x + self->size.x) : self->position.x;
-            float mouthY = self->position.y + 14; // head/upper front, same as the fire origin
+            float mouthY = self->position.y + 17; // open jaw, same as the fire origin
             float px = player->position.x + player->size.x / 2, py = player->position.y + player->size.y / 2;
             float ddx = px - mouthX, ddy = py - mouthY;
             // in front of the facing side, and within jaw reach
@@ -564,13 +564,13 @@ namespace FlipWorld
         {
             bool facingRight = self->direction.x >= 0;
             float mx = facingRight ? (self->position.x + self->size.x - 8) : (self->position.x + 8);
-            float my = self->position.y + 14; // fire from the mouth (head, upper front)
+            float my = self->position.y + 17; // fire from the open jaw (front of the head)
             float px = player->position.x + player->size.x / 2, py = player->position.y + player->size.y / 2;
             float dx = px - mx, dy = py - my, dist = sqrtf(dx * dx + dy * dy);
             bool inArc = dragon_fire_arc(facingRight, px - cx, py - cy); // clock-position arc
             if (inArc && dist > 30 && dist < 500)
             {
-                float sp = 2.8f;
+                float sp = 3.3f;
                 g_fbActive = true; g_fbX = mx; g_fbY = my;
                 g_fbDX = dx / dist * sp; g_fbDY = dy / dist * sp;
                 g_dragonFireCd = 0.2f; // shorter cooldown → many more fireballs
@@ -605,9 +605,42 @@ namespace FlipWorld
         }
     }
 
+    // Warm palette for the boss: yellow (top/wings) → orange (mid) → red (belly),
+    // lightly mottled so all three fiery hues show across the body.
+    static const uint16_t DRAGON_WARM[3] = {0xFFE0 /*yellow*/, 0xFD20 /*orange*/, 0xF800 /*red*/};
+
+    // Multi-colour repaint: the engine's pass-1 blit drew the dragon mask in one flat
+    // ink colour; here we redraw the exact same ink pixels banded by height (yellow
+    // top/wings → orange mid → red belly, lightly mottled) so it reads as fiery.
+    static void dragon_paint_warm(Entity *self, Draw *draw, Game *game)
+    {
+        Image *spr = self->sprite;
+        if (self->direction.x < 0 && self->sprite_left != nullptr) spr = self->sprite_left;
+        else if (self->direction.x > 0 && self->sprite_right != nullptr) spr = self->sprite_right;
+        if (spr == nullptr || !spr->is_8bit) return;
+        const uint8_t *d = spr->getData();
+        int W = (int)spr->size.x, H = (int)spr->size.y;
+        int ox = (int)(self->position.x - game->pos.x);
+        int oy = (int)(self->position.y - game->pos.y);
+        for (int y = 0; y < H; y++)
+        {
+            int band = (y < H / 3) ? 0 : (y < (2 * H) / 3) ? 1 : 2;
+            for (int x = 0; x < W; x++)
+            {
+                if (pgm_read_byte_near(&d[y * W + x]) == 0x00)
+                {
+                    int b = band;
+                    if (((x ^ y) & 3) == 0) b = (b + 2) % 3; // scattered accent hue
+                    draw->drawPixel(Vector(ox + x, oy + y), DRAGON_WARM[b]);
+                }
+            }
+        }
+    }
+
     static void dragon_render(Entity *self, Draw *draw, Game *game)
     {
         if (self->state == ENTITY_DEAD) return;
+        dragon_paint_warm(self, draw, game);
         char hs[24];
         snprintf(hs, sizeof(hs), "DRAGON %.0f", (double)self->health);
         draw_username(game, self->position, hs, (int)self->size.y + 4, 0xFD20);
@@ -660,6 +693,7 @@ namespace FlipWorld
     // Burn mode targets (houses/trees), fired at in flight order.
     static float g_flyBurnX[4], g_flyBurnY[4];
     static int   g_flyBurnN = 0, g_flyBurnI = 0;
+    static float g_flyMeleeCd = 0; // seconds until the cameo dragon may bite again
 
     static Entity *nearest_icon(Level *lvl, float tx, float ty)
     {
@@ -751,8 +785,31 @@ namespace FlipWorld
         // throw fire — from the mouth (front of the head)
         bool facingRight = (g_flyDir >= 0);
         float mx = facingRight ? (nx + self->size.x - 8) : (nx + 8);
-        float my = ny + 14;
+        float my = ny + 17; // open jaw (front of the head)
         if (g_flyFireCd > 0) g_flyFireCd -= dt;
+
+        // Melee bite: the attacking cameo dragon also snaps at the player if it streaks
+        // past close to their face (mode 0 only — the burn-run cameo ignores the player).
+        if (g_flyMeleeCd > 0) g_flyMeleeCd -= dt;
+        if (g_flyMode == 0 && player && g_flyMeleeCd <= 0)
+        {
+            float px = player->position.x + player->size.x / 2, py = player->position.y + player->size.y / 2;
+            float bx = px - mx, by = py - my;
+            bool inFront = facingRight ? (px >= nx + self->size.x * 0.4f)
+                                       : (px <= nx + self->size.x * 0.6f);
+            if (inFront && bx * bx + by * by < 52.0f * 52.0f)
+            {
+                player->health -= 30;
+                g_flyMeleeCd = 0.6f;
+                if (player->health <= 0)
+                {
+                    player->state = ENTITY_DEAD; player->health = player->max_health;
+                    player->position = player->start_position; player->position_set(player->start_position);
+                }
+                else player->state = ENTITY_ATTACKED;
+            }
+        }
+
         if (!g_flyFbActive)
         {
             if (g_flyMode == 0 && player && g_flyFireCd <= 0)
@@ -760,7 +817,7 @@ namespace FlipWorld
                 float px = player->position.x + player->size.x / 2, py = player->position.y + player->size.y / 2;
                 float dx = px - mx, dy = py - my, dd = sqrtf(dx * dx + dy * dy);
                 if (dd > 1 && dragon_fire_arc(facingRight, px - cx, py - cy))
-                { g_flyFbActive = true; g_flyFbX = mx; g_flyFbY = my; float sp = 2.6f; g_flyFbDX = dx / dd * sp; g_flyFbDY = dy / dd * sp; g_flyFireCd = 1.3f; }
+                { g_flyFbActive = true; g_flyFbX = mx; g_flyFbY = my; float sp = 3.1f; g_flyFbDX = dx / dd * sp; g_flyFbDY = dy / dd * sp; g_flyFireCd = 1.3f; }
             }
             else if (g_flyMode == 1 && g_flyBurnI < g_flyBurnN &&
                      fabsf(cx - g_flyBurnX[g_flyBurnI]) < 160)
@@ -818,6 +875,7 @@ namespace FlipWorld
 
     static void flyby_render(Entity *self, Draw *draw, Game *game)
     {
+        dragon_paint_warm(self, draw, game); // same fiery red/orange/yellow body
         if (g_flyFbActive)
         {
             int sx = (int)(g_flyFbX - game->pos.x), sy = (int)(g_flyFbY - game->pos.y);
@@ -843,6 +901,7 @@ namespace FlipWorld
         d->health = 1; d->max_health = 1;
         g_flyPasses = passes; g_flyMode = mode; g_flyDir = 1; g_flyY = pos.y;
         g_flyFireCd = 0.6f; g_flyFbActive = false; g_flyFired = false; g_flyDone = false;
+        g_flyMeleeCd = 0;
         g_flyTX = 0; g_flyTY = 0;
         // copy + sort burn targets by ascending x (fired in flight order, left→right)
         g_flyBurnN = (nTargets > 4) ? 4 : nTargets;
@@ -910,6 +969,10 @@ namespace FlipWorld
         // move. Top/bottom fifth = up/down, left/right quarter = left/right, and a
         // CORNER is in two zones at once → diagonal (e.g. bottom+left = down-left).
         // The central rectangle (no edge) is the attack zone (its original size).
+        //
+        // Multi-touch (capacitive Pancake): both fingers are classified. Any finger on
+        // an edge steers; any finger in the centre attacks — so you can hold a direction
+        // and tap the middle to move and attack at the same time.
         const float STEP = 6;
         float mx = 0, my = 0;
         bool centreTap = false;
@@ -917,12 +980,23 @@ namespace FlipWorld
         if (touch && touch->isPressed())
         {
             float w = game->size.x, h = game->size.y;
-            float px = touch->x(), py = touch->y();
-            if (py < h / 5) my -= 1;          // top edge    → up
-            else if (py > h * 4 / 5) my += 1; // bottom edge → down
-            if (px < w / 4) mx -= 1;          // left edge   → left
-            else if (px > w * 3 / 4) mx += 1; // right edge  → right
-            if (mx == 0 && my == 0) centreTap = true; // central rectangle
+            uint8_t n = touch->count();
+            if (n < 1) n = 1; // isPressed() true → at least the primary point is valid
+            for (uint8_t i = 0; i < n; i++)
+            {
+                float px = (i == 0) ? touch->x() : touch->x2();
+                float py = (i == 0) ? touch->y() : touch->y2();
+                float emx = 0, emy = 0;
+                if (py < h / 5) emy -= 1;          // top edge    → up
+                else if (py > h * 4 / 5) emy += 1; // bottom edge → down
+                if (px < w / 4) emx -= 1;          // left edge   → left
+                else if (px > w * 3 / 4) emx += 1; // right edge  → right
+                if (emx == 0 && emy == 0) centreTap = true; // this finger is attacking
+                else { mx += emx; my += emy; }              // this finger is steering
+            }
+            // Two fingers steering the same axis shouldn't double the speed.
+            if (mx > 1) mx = 1; else if (mx < -1) mx = -1;
+            if (my > 1) my = 1; else if (my < -1) my = -1;
         }
 
         // The Frozen Lake map is slippery: input accelerates a carried velocity and

@@ -14,22 +14,48 @@
 
 namespace Picoware
 {
-    // FT6336 raw read (panel-native portrait coords)
-    static bool ft6336_read_raw(uint16_t &rx, uint16_t &ry)
+    // FT6336 raw read of up to 2 contacts (panel-native portrait coords). Returns the
+    // number of fingers down (0..2). Point 1 lives in regs 0x03-0x06, point 2 in
+    // 0x09-0x0C, so we pull 11 bytes starting at TD_STATUS (0x02).
+    static uint8_t ft6336_read_raw2(uint16_t *rx, uint16_t *ry)
     {
-        uint8_t d[7];
+        uint8_t d[11];
         Wire.beginTransmission(PW_FT6336_ADDR);
         Wire.write(PW_FT6336_TD_STATUS);
         if (Wire.endTransmission(false) != 0)
-            return false;
-        Wire.requestFrom((int)PW_FT6336_ADDR, 7);
-        for (uint8_t i = 0; i < 7; i++)
+            return 0;
+        Wire.requestFrom((int)PW_FT6336_ADDR, 11);
+        for (uint8_t i = 0; i < 11; i++)
             d[i] = Wire.available() ? Wire.read() : 0;
-        if ((d[0] & 0x0F) == 0)
-            return false;
-        rx = ((uint16_t)(d[1] & 0x0F) << 8) | d[2];
-        ry = ((uint16_t)(d[3] & 0x0F) << 8) | d[4];
-        return true;
+        uint8_t n = d[0] & 0x0F;
+        if (n == 0)
+            return 0;
+        if (n > 2)
+            n = 2;
+        rx[0] = ((uint16_t)(d[1] & 0x0F) << 8) | d[2];
+        ry[0] = ((uint16_t)(d[3] & 0x0F) << 8) | d[4];
+        if (n >= 2)
+        {
+            rx[1] = ((uint16_t)(d[7] & 0x0F) << 8) | d[8];
+            ry[1] = ((uint16_t)(d[9] & 0x0F) << 8) | d[10];
+        }
+        return n;
+    }
+
+    // Map an FT6336 panel-native (portrait) coord into the active rotation's screen
+    // space, clamped to the panel. Shared by every contact.
+    static void ft6336_map_rot(uint8_t rot, uint16_t rx, uint16_t ry,
+                               uint16_t w, uint16_t h, uint16_t &sx, uint16_t &sy)
+    {
+        switch (rot)
+        {
+        case 0: sx = rx;                              sy = ry;                              break;
+        case 1: sx = ry;                              sy = (uint16_t)(PW_PANEL_W - 1 - rx); break;
+        case 2: sx = (uint16_t)(PW_PANEL_W - 1 - rx); sy = (uint16_t)(PW_PANEL_H - 1 - ry); break;
+        case 3: sx = (uint16_t)(PW_PANEL_H - 1 - ry); sy = rx;                              break;
+        }
+        if (sx >= w) sx = w - 1;
+        if (sy >= h) sy = h - 1;
     }
 
     // TouchInput
@@ -55,27 +81,41 @@ namespace Picoware
             return true;
         }
 
-        uint16_t rx, ry;
-        if (!ft6336_read_raw(rx, ry))
+        uint16_t rx[2], ry[2];
+        if (ft6336_read_raw2(rx, ry) == 0)
             return false;
-        // Map panel-native portrait coords into the active rotation's screen space.
-        switch (rot)
-        {
-        case 0: sx = rx;                     sy = ry;                     break;
-        case 1: sx = ry;                     sy = (uint16_t)(PW_PANEL_W - 1 - rx); break;
-        case 2: sx = (uint16_t)(PW_PANEL_W - 1 - rx); sy = (uint16_t)(PW_PANEL_H - 1 - ry); break;
-        case 3: sx = (uint16_t)(PW_PANEL_H - 1 - ry); sy = rx;           break;
-        }
-        if (sx >= w) sx = w - 1;
-        if (sy >= h) sy = h - 1;
+        ft6336_map_rot(rot, rx[0], ry[0], w, h, sx, sy);
         return true;
     }
 
     void TouchInput::run()
     {
         lastButton = -1;
-        uint16_t sx, sy;
-        bool down = readPanel(sx, sy);
+        touchCount = 0;
+        uint16_t sx = 0, sy = 0;
+        bool down = false;
+
+        if (tft != nullptr)
+        {
+            // Resistive backend: single contact only.
+            down = readPanel(sx, sy);
+            if (down) touchCount = 1;
+        }
+        else
+        {
+            // Capacitive: read up to two fingers and map each into screen space so the
+            // game can move with one finger and attack with the other simultaneously.
+            uint16_t rx[2], ry[2];
+            uint8_t n = ft6336_read_raw2(rx, ry);
+            touchCount = n;
+            if (n >= 1)
+            {
+                ft6336_map_rot(rot, rx[0], ry[0], w, h, sx, sy);
+                down = true;
+            }
+            if (n >= 2)
+                ft6336_map_rot(rot, rx[1], ry[1], w, h, px2, py2);
+        }
 
         if (down)
         {

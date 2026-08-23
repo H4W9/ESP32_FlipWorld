@@ -1291,13 +1291,14 @@ static void flipWorldIntro() {
   tft->setTextDatum(MC_DATUM);
   tft->setTextColor(COL_FG, COL_BG);
   int cy = SCRH / 2;
-  tft->drawString("Hold an edge to move",         SCRW / 2, cy - 44, 2);
-  tft->drawString("Hold a corner for diagonals",  SCRW / 2, cy - 24, 2);
-  tft->drawString("Tap the centre to attack",     SCRW / 2, cy - 4,  2);
-  tft->drawString("Clear the map of foes to win", SCRW / 2, cy + 12, 2);
-  tft->drawString("Tap < Back to quit",           SCRW / 2, cy + 36, 2);
+  tft->drawString("Hold an edge to move",          SCRW / 2, cy - 56, 2);
+  tft->drawString("Hold a corner for diagonals",   SCRW / 2, cy - 36, 2);
+  tft->drawString("Tap the centre to attack",      SCRW / 2, cy - 16, 2);
+  tft->drawString("2 fingers = move + attack",     SCRW / 2, cy + 4,  2);
+  tft->drawString("Clear the map of foes to win",  SCRW / 2, cy + 24, 2);
+  tft->drawString("Tap < Back to quit",            SCRW / 2, cy + 44, 2);
   tft->setTextColor(COL_FG, COL_BG);
-  tft->drawString("Tap to begin",                SCRW / 2, cy + 66, 4);
+  tft->drawString("Tap to begin",                 SCRW / 2, cy + 74, 4);
   tft->setTextDatum(TL_DATUM);
 
   InputManager *im = vm->getInputManager();
@@ -1449,7 +1450,11 @@ static void fwDrawMinimap(TFT_eSprite *g, Level *level, Game *game) {
     uint16_t col;
     int r;
     if (e->is_player) { col = 0x1C9F; r = 2; }                                    // blue player
-    else if (e->type == ENTITY_ENEMY) { if (e->state == ENTITY_DEAD) continue; col = 0xF800; r = 1; } // red foe
+    else if (e->type == ENTITY_ENEMY) {
+      if (e->state == ENTITY_DEAD) continue;
+      if (e->size.x >= 40) { col = 0xFD20; r = 4; }  // the boss dragon — big orange blip
+      else { col = 0xF800; r = 1; }                  // ordinary red foe
+    }
     else if (e->type == ENTITY_ICON) { col = e->ink_color; r = 0; }               // world object, its own colour
     else continue;
     int dx = mmX + (int)(e->position.x * sx);
