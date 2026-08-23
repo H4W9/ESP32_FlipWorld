@@ -52,8 +52,8 @@ namespace FlipWorld
             return {name, is_left ? enemy_left_ghost_15x15px : enemy_right_ghost_15x15px, Vector(15, 15)};
         if (strcmp(name, "ogre") == 0)
             return {name, is_left ? enemy_left_ogre_10x13px : enemy_right_ogre_10x13px, Vector(10, 13)};
-        if (strcmp(name, "dragon") == 0)
-            return {name, is_left ? enemy_left_dragon_59x44px : enemy_right_dragon_59x44px, Vector(59, 44)};
+        if (strcmp(name, "dragon") == 0) // sprite art faces the opposite way, so swap L/R
+            return {name, is_left ? enemy_right_dragon_59x44px : enemy_left_dragon_59x44px, Vector(59, 44)};
 
         return {NULL, NULL, Vector(0, 0)};
     }
