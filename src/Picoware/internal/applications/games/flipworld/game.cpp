@@ -414,6 +414,27 @@ namespace FlipWorld
     // one per third of health lost, so it flips exactly 3 times over the fight.
     static const float DRAGON_TURN_AT[3] = {0.667f, 0.334f, 0.08f};
 
+    // A fireball incinerates any (non-excluded) living enemy it passes over.
+    static bool fb_hit_enemy(Level *lvl, float x, float y, Entity *exclude)
+    {
+        for (int i = 0; i < lvl->getEntityCount(); i++)
+        {
+            Entity *e = lvl->getEntity(i);
+            if (!e || e == exclude || e->type != ENTITY_ENEMY || e->state == ENTITY_DEAD)
+                continue;
+            float ex = e->position.x + e->size.x / 2 - x, ey = e->position.y + e->size.y / 2 - y;
+            if (ex * ex + ey * ey < 16 * 16)
+            {
+                e->state = ENTITY_DEAD;
+                e->health = 0;
+                e->position = Vector(-100, -100);
+                e->position_set(e->position);
+                return true;
+            }
+        }
+        return false;
+    }
+
     static void dragon_update(Entity *self, Game *game)
     {
         if (self->state == ENTITY_DEAD) { g_fbActive = false; return; }
@@ -460,14 +481,16 @@ namespace FlipWorld
         float cx = self->position.x + self->size.x / 2, cy = self->position.y + self->size.y / 2;
         if (!g_fbActive && g_dragonFireCd <= 0 && player)
         {
-            float px = player->position.x + player->size.x / 2, py = player->position.y + player->size.y / 2;
-            float dx = px - cx, dy = py - cy, dist = sqrtf(dx * dx + dy * dy);
             bool facingRight = self->direction.x >= 0;
+            float mx = facingRight ? (self->position.x + self->size.x - 8) : (self->position.x + 8);
+            float my = self->position.y + 14; // fire from the mouth (head, upper front)
+            float px = player->position.x + player->size.x / 2, py = player->position.y + player->size.y / 2;
+            float dx = px - mx, dy = py - my, dist = sqrtf(dx * dx + dy * dy);
             bool inFront = facingRight ? (px >= cx) : (px <= cx); // 180° front half-plane
             if (inFront && dist > 90 && dist < 420)
             {
                 float sp = 2.6f;
-                g_fbActive = true; g_fbX = cx; g_fbY = cy;
+                g_fbActive = true; g_fbX = mx; g_fbY = my;
                 g_fbDX = dx / dist * sp; g_fbDY = dy / dist * sp;
                 g_dragonFireCd = 2.2f;
             }
@@ -476,6 +499,8 @@ namespace FlipWorld
         {
             g_fbX += g_fbDX; g_fbY += g_fbDY;
             if (g_fbX < 0 || g_fbY < 0 || g_fbX > lvl->size.x || g_fbY > lvl->size.y)
+                g_fbActive = false;
+            else if (fb_hit_enemy(lvl, g_fbX, g_fbY, self)) // a fireball also incinerates foes
                 g_fbActive = false;
             else if (player)
             {
@@ -637,20 +662,23 @@ namespace FlipWorld
         self->position_set(Vector(nx, ny));
         float cx = nx + self->size.x / 2, cy = ny + self->size.y / 2;
 
-        // throw fire
+        // throw fire — from the mouth (front of the head)
+        bool facingRight = (g_flyDir >= 0);
+        float mx = facingRight ? (nx + self->size.x - 8) : (nx + 8);
+        float my = ny + 14;
         if (g_flyFireCd > 0) g_flyFireCd -= dt;
         if (!g_flyFbActive)
         {
             if (g_flyMode == 0 && player && g_flyFireCd <= 0)
             {
                 float px = player->position.x + player->size.x / 2, py = player->position.y + player->size.y / 2;
-                float dx = px - cx, dy = py - cy, dd = sqrtf(dx * dx + dy * dy);
-                if (dd > 1) { g_flyFbActive = true; g_flyFbX = cx; g_flyFbY = cy; float sp = 2.6f; g_flyFbDX = dx / dd * sp; g_flyFbDY = dy / dd * sp; g_flyFireCd = 1.3f; }
+                float dx = px - mx, dy = py - my, dd = sqrtf(dx * dx + dy * dy);
+                if (dd > 1) { g_flyFbActive = true; g_flyFbX = mx; g_flyFbY = my; float sp = 2.6f; g_flyFbDX = dx / dd * sp; g_flyFbDY = dy / dd * sp; g_flyFireCd = 1.3f; }
             }
             else if (g_flyMode == 1 && !g_flyFired && fabsf(cx - g_flyTX) < 160)
             {
-                float dx = g_flyTX - cx, dy = g_flyTY - cy, dd = sqrtf(dx * dx + dy * dy);
-                if (dd > 1) { g_flyFbActive = true; g_flyFbX = cx; g_flyFbY = cy; float sp = 3.0f; g_flyFbDX = dx / dd * sp; g_flyFbDY = dy / dd * sp; g_flyFired = true; }
+                float dx = g_flyTX - mx, dy = g_flyTY - my, dd = sqrtf(dx * dx + dy * dy);
+                if (dd > 1) { g_flyFbActive = true; g_flyFbX = mx; g_flyFbY = my; float sp = 3.0f; g_flyFbDX = dx / dd * sp; g_flyFbDY = dy / dd * sp; g_flyFired = true; }
             }
         }
         if (g_flyFbActive)
@@ -671,6 +699,7 @@ namespace FlipWorld
                     }
                     else player->state = ENTITY_ATTACKED;
                 }
+                else if (fb_hit_enemy(lvl, g_flyFbX, g_flyFbY, self)) g_flyFbActive = false; // also torch foes
                 else if (off) g_flyFbActive = false;
             }
             else if (g_flyMode == 1)

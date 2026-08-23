@@ -346,41 +346,43 @@ static volatile bool g_wifiConnecting = false;
 // Rendering helpers
 // One 90°-wide WiFi arc (a real wifi-fan wedge: ±45° around straight up),
 // plotted point-by-point so it doesn't depend on any drawArc angle convention.
-static void wifiArc(int cx, int cy, int r, uint16_t c) {
+static void wifiArc(TFT_eSPI *g, int cx, int cy, int r, uint16_t c) {
   for (int deg = -45; deg <= 45; deg += 2) {
     float a = deg * 0.0174533f;
     int x = cx + (int)lroundf(r * sinf(a));
     int y = cy - (int)lroundf(r * cosf(a));
-    tft->drawPixel(x, y, c);              // 1px-thin arc
+    g->drawPixel(x, y, c);               // 1px-thin arc (g may be the panel or a canvas)
   }
+}
+// Draw the shared status corner (battery % + WiFi arc icon) onto any target — the
+// panel for the menus, the off-screen canvas for the in-game header — so they match.
+static void drawStatusCorner(TFT_eSPI *g) {
+  if (g_battOk && (g_battMs == 0 || millis() - g_battMs > 10000)) battUpdate();
+  int rx = SCRW - 4;
+  if (g_battPct >= 0) {
+    char pct[8];
+    snprintf(pct, sizeof(pct), "%d%%", g_battPct);
+    g->setTextColor(COL_FG, COL_ACCENT);
+    g->setTextDatum(MR_DATUM);
+    g->drawString(pct, rx, HDRH / 2, 1);
+    rx -= g->textWidth(pct, 1) + 8;
+  }
+  uint16_t wc = g_wifiConnecting               ? TFT_YELLOW
+              : (WiFi.status() == WL_CONNECTED) ? COL_OK
+                                                : TFT_RED;
+  int cx = rx - 10, cy = HDRH / 2 + 5;
+  g->fillCircle(cx, cy, 1, wc);
+  wifiArc(g, cx, cy, 4, wc);
+  wifiArc(g, cx, cy, 7, wc);
+  wifiArc(g, cx, cy, 10, wc);
+  g->setTextDatum(TL_DATUM);
 }
 
 // Battery % (right edge) + WiFi state icon, painted into the header's top-right.
 // Self-clearing, so it can also be called on its own for a periodic refresh.
 static void drawHeaderStatus() {
-  if (g_battOk && (g_battMs == 0 || millis() - g_battMs > 10000)) battUpdate();
   tft->fillRect(SCRW - 62, 0, 62, HDRH, COL_ACCENT);   // clear the status corner
-
-  int rx = SCRW - 4;                                   // right edge for battery text
-  if (g_battPct >= 0) {
-    char pct[8];
-    snprintf(pct, sizeof(pct), "%d%%", g_battPct);
-    tft->setTextColor(COL_FG, COL_ACCENT);
-    tft->setTextDatum(MR_DATUM);
-    tft->drawString(pct, rx, HDRH / 2, 1);             // small (font 1) like H4W9
-    rx -= tft->textWidth(pct, 1) + 8;                  // slot the icon left of the %
-  }
-
-  // WiFi icon: source dot + three 90° arcs. green=connected, yellow=connecting, red=off.
-  uint16_t wc = g_wifiConnecting               ? TFT_YELLOW
-              : (WiFi.status() == WL_CONNECTED) ? COL_OK
-                                                : TFT_RED;
-  int cx = rx - 10, cy = HDRH / 2 + 5;                 // arc apex (bottom) point
-  tft->fillCircle(cx, cy, 1, wc);
-  wifiArc(cx, cy, 4,  wc);
-  wifiArc(cx, cy, 7,  wc);
-  wifiArc(cx, cy, 10, wc);
-  tft->setTextDatum(TL_DATUM);
+  drawStatusCorner(tft);                               // battery % + WiFi arc icon
 }
 
 // Crisp vector chevron "<"/">" (solid triangle) — matches H4W9 selectors.
@@ -1410,21 +1412,8 @@ static void fwCanvasHeader(TFT_eSprite *g, const char *worldName) {
   g->setTextDatum(MC_DATUM);
   g->drawString(worldName, SCRW / 2, HDRH / 2, 2);
 
-  // Status corner: battery % (from the same MAX17048 the shell reads, refreshed at
-  // most every 10 s) + a WiFi state dot — same as the FlipSocial header.
-  if (g_battOk && (g_battMs == 0 || millis() - g_battMs > 10000)) battUpdate();
-  int rx = SCRW - 4;
-  if (g_battPct >= 0) {
-    char pct[8];
-    snprintf(pct, sizeof(pct), "%d%%", g_battPct);
-    g->setTextColor(COL_FG, COL_ACCENT);
-    g->setTextDatum(MR_DATUM);
-    g->drawString(pct, rx, HDRH / 2, 1);
-    rx -= g->textWidth(pct, 1) + 8;
-  }
-  uint16_t wc = g_wifiConnecting ? TFT_YELLOW
-              : (WiFi.status() == WL_CONNECTED ? COL_OK : TFT_RED);
-  g->fillCircle(rx - 3, HDRH / 2, 3, wc);
+  // Status corner — the exact same battery % + WiFi arc icon the menus draw.
+  drawStatusCorner(g);
   g->setTextDatum(TL_DATUM);
 }
 
