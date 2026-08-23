@@ -573,10 +573,10 @@ namespace FlipWorld
         uint32_t t = millis();
         for (int i = 0; i < 6; i++)
         {
-            int fx = bx + i * 8;
-            int h = 12 + (int)((sinf(t * 0.02f + i) * 0.5f + 0.5f) * 8);
-            game->draw->display->fillTriangle(fx, by, fx + 6, by, fx + 3, by - h, 0xFC00);       // orange
-            game->draw->display->fillTriangle(fx + 1, by, fx + 5, by, fx + 3, by - h + 5, 0xFFE0); // hot core
+            int fx = bx + i * 8 + 3;
+            int flick = (int)((sinf(t * 0.02f + i * 1.3f) * 0.5f + 0.5f) * 8);
+            game->draw->display->fillCircle(fx, by - flick, 4, 0xFC00);     // orange flame
+            game->draw->display->fillCircle(fx, by - 4 - flick, 2, 0xFFE0); // hot yellow tip
         }
     }
     static void spawn_fire(Level *level, Vector pos)
