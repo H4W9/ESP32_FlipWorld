@@ -677,7 +677,10 @@ namespace FlipWorld
             {
                 if (pgm_read_byte_near(&d[y * W + x]) != 0x00) continue;
                 uint16_t col;
-                if (y < wingCut)
+                // Head (t=0) → tail (t=1), t along the facing axis.
+                float t = headRight ? (float)(W - 1 - x) / (W - 1) : (float)x / (W - 1);
+                float frontCols = headRight ? (float)(W - 1 - x) : (float)x; // columns from the front
+                if (y < wingCut && frontCols >= 8)
                 {
                     // Wings: yellow with the same light mottle as before — but keep the
                     // top row clean so the horn tips aren't nicked by a stray red pixel.
@@ -685,8 +688,7 @@ namespace FlipWorld
                 }
                 else
                 {
-                    // Body: head (t=0) → tail (t=1), t along the facing axis.
-                    float t = headRight ? (float)(W - 1 - x) / (W - 1) : (float)x / (W - 1);
+                    // Body + head front (front 8 columns have no wing above them): gradient.
                     col = (y >= footCut) ? GREEN : dragon_grad(t); // feet stay green
                 }
                 draw->drawPixel(Vector(ox + x, oy + y), col);
