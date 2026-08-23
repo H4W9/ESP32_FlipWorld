@@ -635,13 +635,28 @@ namespace FlipWorld
         }
     }
 
-    // Warm palette for the boss: yellow (top/wings) → orange (mid) → red (belly),
-    // lightly mottled so all three fiery hues show across the body.
+    // Wing palette (kept as it was): yellow with a light red mottle.
     static const uint16_t DRAGON_WARM[3] = {0xFFE0 /*yellow*/, 0xFD20 /*orange*/, 0xF800 /*red*/};
 
+    // Smooth head→tail colour for a fraction t (0 = head, 1 = tail): red → orange →
+    // yellow across most of the body, then compressed to green only in the last tenth so
+    // green stays confined to the tail tip. Interpolated in RGB, packed back to RGB565.
+    static uint16_t dragon_grad(float t)
+    {
+        if (t < 0) t = 0; if (t > 1) t = 1;
+        float r, g, b;
+        if (t < 0.40f)      { float k = t / 0.40f;          r = 255;         g = 0 + k * 150; b = 0; }        // red → orange
+        else if (t < 0.72f) { float k = (t - 0.40f) / 0.32f; r = 255;        g = 150 + k * 105; b = 0; }       // orange → yellow
+        else if (t < 0.90f) {                                r = 255;        g = 255;          b = 0; }        // yellow hold
+        else                { float k = (t - 0.90f) / 0.10f; r = 255 - k * 210; g = 255 - k * 35; b = 0 + k * 70; } // yellow → green
+        uint16_t R = ((uint16_t)r >> 3) & 0x1F, G = ((uint16_t)g >> 2) & 0x3F, B = ((uint16_t)b >> 3) & 0x1F;
+        return (R << 11) | (G << 5) | B;
+    }
+
     // Multi-colour repaint: the engine's pass-1 blit drew the dragon mask in one flat
-    // ink colour; here we redraw the exact same ink pixels banded by height (yellow
-    // top/wings → orange mid → red belly, lightly mottled) so it reads as fiery.
+    // ink colour; here we redraw the same ink pixels as a gradual head→tail gradient —
+    // red head, through orange and yellow, to green only at the very tail tip and the
+    // feet. The wings (upper area) keep their previous yellow look.
     static void dragon_paint_warm(Entity *self, Draw *draw, Game *game)
     {
         Image *spr = self->sprite;
@@ -652,17 +667,29 @@ namespace FlipWorld
         int W = (int)spr->size.x, H = (int)spr->size.y;
         int ox = (int)(self->position.x - game->pos.x);
         int oy = (int)(self->position.y - game->pos.y);
+        bool headRight = self->direction.x >= 0; // head is on the facing side
+        int wingCut = H - 12;                     // wings reach ~12px up from the bottom; keep them yellow
+        int footCut = H - 3;                       // bottom rows = feet (small green)
+        const uint16_t GREEN = dragon_grad(1.0f);
         for (int y = 0; y < H; y++)
         {
-            int band = (y < H / 3) ? 0 : (y < (2 * H) / 3) ? 1 : 2;
             for (int x = 0; x < W; x++)
             {
-                if (pgm_read_byte_near(&d[y * W + x]) == 0x00)
+                if (pgm_read_byte_near(&d[y * W + x]) != 0x00) continue;
+                uint16_t col;
+                if (y < wingCut)
                 {
-                    int b = band;
-                    if (((x ^ y) & 3) == 0) b = (b + 2) % 3; // scattered accent hue
-                    draw->drawPixel(Vector(ox + x, oy + y), DRAGON_WARM[b]);
+                    // Wings: yellow with the same light mottle as before — but keep the
+                    // top row clean so the horn tips aren't nicked by a stray red pixel.
+                    col = (y > 0 && ((x ^ y) & 3) == 0) ? DRAGON_WARM[2] : DRAGON_WARM[0];
                 }
+                else
+                {
+                    // Body: head (t=0) → tail (t=1), t along the facing axis.
+                    float t = headRight ? (float)(W - 1 - x) / (W - 1) : (float)x / (W - 1);
+                    col = (y >= footCut) ? GREEN : dragon_grad(t); // feet stay green
+                }
+                draw->drawPixel(Vector(ox + x, oy + y), col);
             }
         }
     }
