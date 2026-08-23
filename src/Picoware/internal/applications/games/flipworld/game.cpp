@@ -414,6 +414,16 @@ namespace FlipWorld
     // one per third of health lost, so it flips exactly 3 times over the fight.
     static const float DRAGON_TURN_AT[3] = {0.667f, 0.334f, 0.08f};
 
+    // Fire only within the dragon's attack arc (clock positions, screen coords with
+    // +x = 3 o'clock/0°, +y = 6 o'clock/90°): right-facing fires 1→6 o'clock
+    // ([-60°,90°]); left-facing fires 6→11 o'clock (>=90° or <=-120°).
+    static bool dragon_fire_arc(bool facingRight, float dx, float dy)
+    {
+        float ang = atan2f(dy, dx) * 57.29578f; // degrees in [-180,180]
+        return facingRight ? (ang >= -60.0f && ang <= 90.0f)
+                           : (ang >= 90.0f || ang <= -120.0f);
+    }
+
     // A fireball incinerates any (non-excluded) living enemy it passes over.
     static bool fb_hit_enemy(Level *lvl, float x, float y, Entity *exclude)
     {
@@ -486,8 +496,8 @@ namespace FlipWorld
             float my = self->position.y + 14; // fire from the mouth (head, upper front)
             float px = player->position.x + player->size.x / 2, py = player->position.y + player->size.y / 2;
             float dx = px - mx, dy = py - my, dist = sqrtf(dx * dx + dy * dy);
-            bool inFront = facingRight ? (px >= cx) : (px <= cx); // 180° front half-plane
-            if (inFront && dist > 90 && dist < 420)
+            bool inArc = dragon_fire_arc(facingRight, px - cx, py - cy); // clock-position arc
+            if (inArc && dist > 90 && dist < 420)
             {
                 float sp = 2.6f;
                 g_fbActive = true; g_fbX = mx; g_fbY = my;
@@ -673,7 +683,8 @@ namespace FlipWorld
             {
                 float px = player->position.x + player->size.x / 2, py = player->position.y + player->size.y / 2;
                 float dx = px - mx, dy = py - my, dd = sqrtf(dx * dx + dy * dy);
-                if (dd > 1) { g_flyFbActive = true; g_flyFbX = mx; g_flyFbY = my; float sp = 2.6f; g_flyFbDX = dx / dd * sp; g_flyFbDY = dy / dd * sp; g_flyFireCd = 1.3f; }
+                if (dd > 1 && dragon_fire_arc(facingRight, px - cx, py - cy))
+                { g_flyFbActive = true; g_flyFbX = mx; g_flyFbY = my; float sp = 2.6f; g_flyFbDX = dx / dd * sp; g_flyFbDY = dy / dd * sp; g_flyFireCd = 1.3f; }
             }
             else if (g_flyMode == 1 && !g_flyFired && fabsf(cx - g_flyTX) < 160)
             {
