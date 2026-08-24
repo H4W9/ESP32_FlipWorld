@@ -874,7 +874,7 @@ namespace FlipWorld
                     g_flyTX = tgt->position.x + tgt->size.x / 2;
                     g_flyTY = tgt->position.y + tgt->size.y / 2;
                     float dx = g_flyTX - mx, dy = g_flyTY - my, dd = sqrtf(dx * dx + dy * dy);
-                    if (dd > 1) { g_flyFbActive = true; g_flyFbX = mx; g_flyFbY = my; float sp = 4.0f; g_flyFbDX = dx / dd * sp; g_flyFbDY = dy / dd * sp; g_flyFireCd = 0.7f; }
+                    if (dd > 1) { g_flyFbActive = true; g_flyFbX = mx; g_flyFbY = my; float sp = 4.0f; g_flyFbDX = dx / dd * sp; g_flyFbDY = dy / dd * sp; g_flyFireCd = 0.85f; }
                 }
             }
         }
@@ -920,12 +920,12 @@ namespace FlipWorld
             }
         }
 
-        // Burn run: once it's torched its quota, it leaves (undefeated) right away.
-        if (g_flyMode == 1 && g_flyBurnN > 0 && g_flyBurnI >= g_flyBurnN)
-        {
-            g_flyDone = true; self->is_active = false; g_flyFbActive = false;
-            return;
-        }
+        // Burn run: once it's torched its quota it stops firing (the fire condition above
+        // already gates on g_flyBurnI < g_flyBurnN) and finishes the pass it's on, then
+        // flies off the edge — capping the remaining passes to 1 so it doesn't turn back
+        // for another, and doesn't vanish mid-map.
+        if (g_flyMode == 1 && g_flyBurnN > 0 && g_flyBurnI >= g_flyBurnN && g_flyPasses > 1)
+            g_flyPasses = 1;
 
         // count passes; leave undefeated after the last one
         float margin = self->size.x + 20;
