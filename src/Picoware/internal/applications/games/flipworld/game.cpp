@@ -465,10 +465,10 @@ namespace FlipWorld
     static float g_dragonBaseY = 0;   // the horizontal path height
     static float g_dragonPhase = 0;   // vertical-wobble phase
     static float g_dragonFireCd = 0;  // seconds until it may fire again
-    // Up to 3 fireballs may be in flight at once — the dragon can loose the next before
+    // Up to 5 fireballs may be in flight at once — the dragon can loose the next before
     // the previous ones land.
-    static const int DRAGON_FB_MAX = 3;
-    static bool  g_fbAct[DRAGON_FB_MAX] = {false, false, false};
+    static const int DRAGON_FB_MAX = 5;
+    static bool  g_fbAct[DRAGON_FB_MAX] = {false, false, false, false, false};
     static float g_fbX[DRAGON_FB_MAX], g_fbY[DRAGON_FB_MAX], g_fbDX[DRAGON_FB_MAX], g_fbDY[DRAGON_FB_MAX];
     static int   g_dragonTurns = 0;   // defensive turns used (max 3)
     static float g_dragonMoveDir = -1; // patrol direction (+1 right / -1 left)
@@ -611,7 +611,10 @@ namespace FlipWorld
                 float sp = 3.3f;
                 g_fbAct[freeSlot] = true; g_fbX[freeSlot] = mx; g_fbY[freeSlot] = my;
                 g_fbDX[freeSlot] = dx / dist * sp; g_fbDY[freeSlot] = dy / dist * sp;
-                g_dragonFireCd = 0.2f; // shorter cooldown → many more fireballs
+                // Longer gap between shots so the (up to 5) fireballs spread out over the
+                // dragon's patrol instead of streaming from one spot in one direction —
+                // they come from varied angles and are harder to sidestep.
+                g_dragonFireCd = 0.7f;
             }
         }
         for (int i = 0; i < DRAGON_FB_MAX; i++)
@@ -765,14 +768,19 @@ namespace FlipWorld
     static float g_flyMeleeCd = 0; // seconds until the cameo dragon may bite again
 
     // Nearest un-burnt flammable icon (tree/plant/flower/house) within maxDist of (x,y).
-    static Entity *nearest_flammable(Level *lvl, float x, float y, float maxDist)
+    // If dirX != 0, only icons AHEAD of x in that direction count — so a dragon flying
+    // across torches objects progressively along its path, spread over the whole map
+    // rather than dumping every shot on the first cluster it meets.
+    static Entity *nearest_flammable(Level *lvl, float x, float y, float maxDist, float dirX)
     {
         Entity *best = nullptr; float bd = maxDist * maxDist;
         for (int i = 0; i < lvl->getEntityCount(); i++)
         {
             Entity *e = lvl->getEntity(i);
             if (!e || e->type != ENTITY_ICON || e->burn_kind == 0 || e->on_fire > 0) continue;
-            float dx = e->position.x + e->size.x / 2 - x, dy = e->position.y + e->size.y / 2 - y, d = dx * dx + dy * dy;
+            float ecx = e->position.x + e->size.x / 2;
+            if (dirX != 0 && (ecx - x) * dirX < 20) continue; // must be ahead of the dragon
+            float dx = ecx - x, dy = e->position.y + e->size.y / 2 - y, d = dx * dx + dy * dy;
             if (d < bd) { bd = d; best = e; }
         }
         return best;
@@ -854,17 +862,19 @@ namespace FlipWorld
                 if (dd > 1 && dragon_fire_arc(facingRight, px - cx, py - cy))
                 { g_flyFbActive = true; g_flyFbX = mx; g_flyFbY = my; float sp = 3.1f; g_flyFbDX = dx / dd * sp; g_flyFbDY = dy / dd * sp; g_flyFireCd = 1.3f; }
             }
-            else if (g_flyMode == 1 && g_flyBurnI < g_flyBurnN)
+            else if (g_flyMode == 1 && g_flyBurnI < g_flyBurnN && g_flyFireCd <= 0)
             {
-                // Auto-target the nearest un-burnt tree/flower/house within reach and
-                // breathe fire onto it, so it torches things all along its pass.
-                Entity *tgt = nearest_flammable(lvl, cx, cy, 240);
+                // Torch an un-burnt tree/flower/house AHEAD of the dragon on a cooldown,
+                // so the fires end up spread across the whole map (one every so often as
+                // it flies over) instead of all dumped on the first cluster at once.
+                Entity *tgt = nearest_flammable(lvl, cx, cy, 260, g_flyDir);
+                if (!tgt) tgt = nearest_flammable(lvl, cx, cy, 260, 0); // fallback: nearest any
                 if (tgt)
                 {
                     g_flyTX = tgt->position.x + tgt->size.x / 2;
                     g_flyTY = tgt->position.y + tgt->size.y / 2;
                     float dx = g_flyTX - mx, dy = g_flyTY - my, dd = sqrtf(dx * dx + dy * dy);
-                    if (dd > 1) { g_flyFbActive = true; g_flyFbX = mx; g_flyFbY = my; float sp = 4.0f; g_flyFbDX = dx / dd * sp; g_flyFbDY = dy / dd * sp; }
+                    if (dd > 1) { g_flyFbActive = true; g_flyFbX = mx; g_flyFbY = my; float sp = 4.0f; g_flyFbDX = dx / dd * sp; g_flyFbDY = dy / dd * sp; g_flyFireCd = 0.7f; }
                 }
             }
         }
