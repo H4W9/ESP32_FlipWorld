@@ -89,7 +89,43 @@ static const int CONTENTY = HDRH;
 
 // FlipWorld player progression (defined up here so Arduino's auto-generated
 // prototypes — inserted above the first function — can see the type).
-struct FWStats { String name; float level, xp, health, max_health, strength; bool valid; };
+// Field set/order matches the MicroPython build's entity_to_json() "full format"
+// (see flip_world/run.py). Defaults mirror a fresh player's spawn values (see
+// player_spawn/Entity ctor) so a struct that only ever went through the online
+// fetch/SD-read path (which only recovers the six core progression fields)
+// still serialises sane, non-garbage values for the rest.
+struct FWStats {
+  String name;
+  float level = 1, xp = 0, health = 100, max_health = 100, strength = 10;
+  float health_regen = 1, elapsed_health_regen = 0;
+  float attack_timer = 0.2f, elapsed_attack_timer = 0;
+  Vector direction = Vector(1, 0);   // facing right
+  EntityState state = ENTITY_IDLE;
+  Vector start_position = Vector(0, 0);
+  bool valid = false;
+};
+
+// String forms match the MicroPython build's direction_to_str()/state_to_str().
+static String fwDirectionToStr(const Vector &d) {
+  if (d.x == -1 && d.y == 0) return "left";
+  if (d.x == 1 && d.y == 0) return "right";
+  if (d.x == 0 && d.y == -1) return "up";
+  if (d.x == 0 && d.y == 1) return "down";
+  return "right"; // default right
+}
+
+static String fwStateToStr(EntityState s) {
+  switch (s) {
+    case ENTITY_IDLE:             return "idle";
+    case ENTITY_MOVING:           return "moving";
+    case ENTITY_MOVING_TO_START:  return "moving_to_start";
+    case ENTITY_MOVING_TO_END:    return "moving_to_end";
+    case ENTITY_ATTACKING:        return "attacking";
+    case ENTITY_ATTACKED:         return "attacked";
+    case ENTITY_DEAD:             return "dead";
+    default:                      return "unknown";
+  }
+}
 
 #ifndef HAS_CAP_TOUCH
 // Resistive touch calibration (V8). Capacitive panels report real coordinates
@@ -1169,12 +1205,22 @@ static bool fwStatsReadSD(FWStats &s) {
 static void fwStatsWriteSD(const FWStats &s) {
   JsonDocument d;
   JsonObject g = d["game_stats"].to<JsonObject>();
-  g["username"]   = s.name;
-  g["level"]      = (int)s.level;
-  g["xp"]         = (long)s.xp;
-  g["health"]     = (int)s.health;
-  g["max_health"] = (int)s.max_health;
-  g["strength"]   = s.strength;
+  g["username"]              = s.name;
+  g["level"]                 = (int)s.level;
+  g["xp"]                    = (long)s.xp;
+  g["health"]                = (int)s.health;
+  g["strength"]              = s.strength;
+  g["max_health"]            = (int)s.max_health;
+  g["health_regen"]          = s.health_regen;
+  g["elapsed_health_regen"]  = s.elapsed_health_regen;
+  g["attack_timer"]          = s.attack_timer;
+  g["elapsed_attack_timer"]  = s.elapsed_attack_timer;
+  g["direction"]             = fwDirectionToStr(s.direction);
+  g["state"]                 = fwStateToStr(s.state);
+  g["start_position_x"]      = s.start_position.x;
+  g["start_position_y"]      = s.start_position.y;
+  g["dx"]                    = s.direction.x;
+  g["dy"]                    = s.direction.y;
   SD.remove(FW_STATS_FILE);                 // truncate: FILE_WRITE won't shrink a file
   File f = SD.open(FW_STATS_FILE, FILE_WRITE);
   if (!f) return;
@@ -1206,12 +1252,22 @@ static void fwStatsPushOnline(const FWStats &s) {
   JsonDocument d;
   d["username"] = user;
   JsonObject g = d["game_stats"].to<JsonObject>();
-  g["username"]   = user;
-  g["level"]      = (int)s.level;
-  g["xp"]         = (long)s.xp;
-  g["health"]     = (int)s.health;
-  g["max_health"] = (int)s.max_health;
-  g["strength"]   = s.strength;
+  g["username"]              = user;
+  g["level"]                 = (int)s.level;
+  g["xp"]                    = (long)s.xp;
+  g["health"]                = (int)s.health;
+  g["strength"]              = s.strength;
+  g["max_health"]            = (int)s.max_health;
+  g["health_regen"]          = s.health_regen;
+  g["elapsed_health_regen"]  = s.elapsed_health_regen;
+  g["attack_timer"]          = s.attack_timer;
+  g["elapsed_attack_timer"]  = s.elapsed_attack_timer;
+  g["direction"]             = fwDirectionToStr(s.direction);
+  g["state"]                 = fwStateToStr(s.state);
+  g["start_position_x"]      = s.start_position.x;
+  g["start_position_y"]      = s.start_position.y;
+  g["dx"]                    = s.direction.x;
+  g["dy"]                    = s.direction.y;
   String payload; serializeJson(d, payload);
   HTTP http;
   const char *hk[] = {"Content-Type", "Username", "Password"};
@@ -1248,13 +1304,20 @@ static void flipWorldStatsApply(Level *level, bool onlineSync = true) {
 static bool fwCaptureStats(Level *level, FWStats &s) {
   Entity *p = fwFindPlayer(level);
   if (!p) return false;
-  s.name       = credGet("user").length() ? credGet("user") : String("Player");
-  s.level      = p->level;
-  s.xp         = p->xp;
-  s.health     = p->health;
-  s.max_health = p->max_health;
-  s.strength   = p->strength;
-  s.valid      = true;
+  s.name                  = credGet("user").length() ? credGet("user") : String("Player");
+  s.level                 = p->level;
+  s.xp                    = p->xp;
+  s.health                = p->health;
+  s.max_health            = p->max_health;
+  s.strength              = p->strength;
+  s.health_regen          = p->health_regen;
+  s.elapsed_health_regen  = p->elapsed_health_regen;
+  s.attack_timer          = p->attack_timer;
+  s.elapsed_attack_timer  = p->elapsed_attack_timer;
+  s.direction             = p->direction;
+  s.state                 = p->state;
+  s.start_position        = p->start_position;
+  s.valid                 = true;
   return true;
 }
 
