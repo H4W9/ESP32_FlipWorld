@@ -1183,9 +1183,9 @@ namespace FlipWorld
         const int boxW = 104, boxH = ROW * 3 + 20;
         game->draw->display->fillRect(pos.x - 2, pos.y - 3, boxW, boxH, TFT_BLACK);
 
-        char health[24], level[24], xpS[32];
+        char health[24], level[32], xpS[32];
         snprintf(health, sizeof(health), "HP %.0f/%.0f", (double)self->health, (double)self->max_health);
-        snprintf(level, sizeof(level), "LVL %d", lvl);
+        snprintf(level, sizeof(level), "LVL %d (%.0f)", lvl, (double)self->xp); // total XP in parens
         snprintf(xpS, sizeof(xpS), "XP %.0f/%.0f", (double)into, (double)span);
 
         game->draw->text(Vector(pos.x, pos.y), health, STAT_COL);
