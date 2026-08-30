@@ -1715,8 +1715,111 @@ static int fwMapPicker() {
 }
 
 // Main menu (H4W9-style large rounded buttons)
-static const char *MENU_ITEMS[] = { "Campaign", "Select Map", "Settings" };
-static const int    MENU_COUNT  = 3;
+// ── Leaderboard ───────────────────────────────────────────────────────────────
+// Shows the FlipWorld Top-20 from jblanked.com. That page is a ~90KB HTML table, so we
+// STREAM it line-by-line and pull the <td> cells (memory-safe on the ESP32) rather than
+// buffering the whole body. Parsed rows are cached to SD, so the list still shows the
+// last fetch when offline.
+static const char *FW_LB_URL   = "https://www.jblanked.com/flipper/flip-world/stats/";
+static const char *FW_LB_CACHE = "/flipworld_leaderboard.txt";
+static const int   FW_LB_MAX   = 20;
+static char  g_lbName[FW_LB_MAX][20];
+static int   g_lbLevel[FW_LB_MAX];
+static long  g_lbXP[FW_LB_MAX];
+
+// Stream the stats page and parse the leaderboard table into the g_lb* arrays.
+// Returns the number of rows parsed (0 = offline / failed).
+static int fwLeaderboardFetch() {
+  if (WiFi.status() != WL_CONNECTED) return 0;
+  WiFiClientSecure client;
+  client.setInsecure();                     // public page — no cert pinning needed
+  HTTPClient http;
+  http.setTimeout(9000);
+  if (!http.begin(client, FW_LB_URL)) return 0;
+  ledHttp();
+  int n = 0;
+  if (http.GET() == 200) {
+    WiFiClient *stream = http.getStreamPtr();
+    stream->setTimeout(3000);
+    bool started = false;                   // reached the "Top 20 Players" table yet?
+    int cell = 0;                           // 0=name 1=level 2=xp 3=lastActive
+    String name; int lvl = 0; long xp = 0;
+    uint32_t guard = 0;
+    while (http.connected() && n < FW_LB_MAX && guard < 8000) {
+      String line = stream->readStringUntil('\n');
+      guard++;
+      if (line.length() == 0) { if (!stream->available()) break; else continue; }
+      if (!started) { if (line.indexOf("Top 20 Players") >= 0) started = true; continue; }
+      if (line.indexOf("</table>") >= 0) break;  // end of the leaderboard table
+      int a = line.indexOf("<td>");
+      if (a < 0) continue;
+      int b = line.indexOf("</td>", a);
+      if (b < 0) continue;
+      String v = line.substring(a + 4, b); v.trim();
+      if (cell == 0) name = v;
+      else if (cell == 1) lvl = v.toInt();
+      else if (cell == 2) xp = v.toInt();
+      cell++;
+      if (cell == 4) {                       // completed one row
+        strncpy(g_lbName[n], name.c_str(), sizeof(g_lbName[n]) - 1);
+        g_lbName[n][sizeof(g_lbName[n]) - 1] = 0;
+        g_lbLevel[n] = lvl; g_lbXP[n] = xp;
+        n++; cell = 0;
+      }
+    }
+  }
+  http.end();
+  ledOff();
+  return n;
+}
+
+static void fwLeaderboardSaveCache(int n) {
+  SD.remove(FW_LB_CACHE);
+  File f = SD.open(FW_LB_CACHE, FILE_WRITE);
+  if (!f) return;
+  for (int i = 0; i < n; i++) f.printf("%s|%d|%ld\n", g_lbName[i], g_lbLevel[i], g_lbXP[i]);
+  f.close();
+}
+
+static int fwLeaderboardLoadCache() {
+  File f = SD.open(FW_LB_CACHE, FILE_READ);
+  if (!f) return 0;
+  int n = 0;
+  while (f.available() && n < FW_LB_MAX) {
+    String line = f.readStringUntil('\n'); line.trim();
+    if (line.length() == 0) continue;
+    int p1 = line.indexOf('|'), p2 = line.indexOf('|', p1 + 1);
+    if (p1 < 0 || p2 < 0) continue;
+    strncpy(g_lbName[n], line.substring(0, p1).c_str(), sizeof(g_lbName[n]) - 1);
+    g_lbName[n][sizeof(g_lbName[n]) - 1] = 0;
+    g_lbLevel[n] = line.substring(p1 + 1, p2).toInt();
+    g_lbXP[n]    = line.substring(p2 + 1).toInt();
+    n++;
+  }
+  f.close();
+  return n;
+}
+
+static void fwLeaderboardScreen() {
+  fwNotice("Leaderboard", "Loading...", 0);
+  int n = fwLeaderboardFetch();
+  bool cached = false;
+  if (n > 0) {
+    fwLeaderboardSaveCache(n);              // fresh fetch → refresh the cache
+  } else {
+    n = fwLeaderboardLoadCache();           // offline / failed → last cached fetch
+    cached = true;
+  }
+  if (n <= 0) { fwNotice("Leaderboard", "No data - connect WiFi", 1800); return; }
+
+  String rows[FW_LB_MAX];
+  for (int i = 0; i < n; i++)
+    rows[i] = String(i + 1) + ". " + String(g_lbName[i]) + "  L" + String(g_lbLevel[i]) + "  " + String(g_lbXP[i]);
+  scrollList(cached ? "Leaderboard (cached)" : "Leaderboard", rows, n, false, "Back", "", "");
+}
+
+static const char *MENU_ITEMS[] = { "Campaign", "Select Map", "Leaderboard", "Settings" };
+static const int    MENU_COUNT  = 4;
 static const int    MENU_MARGIN = 16;
 static const int    MENU_TOP    = CONTENTY + 12;
 static const int    MENU_GAP    = 12;
@@ -1761,7 +1864,8 @@ static void openMenuItem(int i) {
     case 1:                            // Select Map — pick a map, play it, back to picker
       for (;;) { int m = fwMapPicker(); if (m < 0) break; playMaps(m, false); }
       break;
-    case 2: settingsFlow(); break;     // WiFi, theme, brightness, About
+    case 2: fwLeaderboardScreen(); break; // Leaderboard (Top 20, cached offline)
+    case 3: settingsFlow(); break;     // WiFi, theme, brightness, About
     default: break;
   }
   drawMenu();
