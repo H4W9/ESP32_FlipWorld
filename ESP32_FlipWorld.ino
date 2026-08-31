@@ -1726,6 +1726,7 @@ static const int   FW_LB_MAX   = 20;
 static char  g_lbName[FW_LB_MAX][20];
 static int   g_lbLevel[FW_LB_MAX];
 static long  g_lbXP[FW_LB_MAX];
+static char  g_lbActive[FW_LB_MAX][40];   // "last active" date, shown in the row popup
 
 // Stream the stats page and parse the leaderboard table into the g_lb* arrays.
 // Returns the number of rows parsed (0 = offline / failed).
@@ -1743,7 +1744,7 @@ static int fwLeaderboardFetch() {
     stream->setTimeout(3000);
     bool started = false;                   // reached the "Top 20 Players" table yet?
     int cell = 0;                           // 0=name 1=level 2=xp 3=lastActive
-    String name; int lvl = 0; long xp = 0;
+    String name; int lvl = 0; long xp = 0; String active;
     uint32_t guard = 0;
     while (http.connected() && n < FW_LB_MAX && guard < 8000) {
       String line = stream->readStringUntil('\n');
@@ -1759,10 +1760,13 @@ static int fwLeaderboardFetch() {
       if (cell == 0) name = v;
       else if (cell == 1) lvl = v.toInt();
       else if (cell == 2) xp = v.toInt();
+      else if (cell == 3) active = v;
       cell++;
       if (cell == 4) {                       // completed one row
         strncpy(g_lbName[n], name.c_str(), sizeof(g_lbName[n]) - 1);
         g_lbName[n][sizeof(g_lbName[n]) - 1] = 0;
+        strncpy(g_lbActive[n], active.c_str(), sizeof(g_lbActive[n]) - 1);
+        g_lbActive[n][sizeof(g_lbActive[n]) - 1] = 0;
         g_lbLevel[n] = lvl; g_lbXP[n] = xp;
         n++; cell = 0;
       }
@@ -1777,7 +1781,8 @@ static void fwLeaderboardSaveCache(int n) {
   SD.remove(FW_LB_CACHE);
   File f = SD.open(FW_LB_CACHE, FILE_WRITE);
   if (!f) return;
-  for (int i = 0; i < n; i++) f.printf("%s|%d|%ld\n", g_lbName[i], g_lbLevel[i], g_lbXP[i]);
+  for (int i = 0; i < n; i++)
+    f.printf("%s|%d|%ld|%s\n", g_lbName[i], g_lbLevel[i], g_lbXP[i], g_lbActive[i]);
   f.close();
 }
 
@@ -1790,14 +1795,63 @@ static int fwLeaderboardLoadCache() {
     if (line.length() == 0) continue;
     int p1 = line.indexOf('|'), p2 = line.indexOf('|', p1 + 1);
     if (p1 < 0 || p2 < 0) continue;
+    int p3 = line.indexOf('|', p2 + 1);      // optional 4th field (older caches lack it)
     strncpy(g_lbName[n], line.substring(0, p1).c_str(), sizeof(g_lbName[n]) - 1);
     g_lbName[n][sizeof(g_lbName[n]) - 1] = 0;
     g_lbLevel[n] = line.substring(p1 + 1, p2).toInt();
-    g_lbXP[n]    = line.substring(p2 + 1).toInt();
+    g_lbXP[n]    = line.substring(p2 + 1, p3 < 0 ? line.length() : p3).toInt();
+    String act = (p3 < 0) ? String("") : line.substring(p3 + 1);
+    strncpy(g_lbActive[n], act.c_str(), sizeof(g_lbActive[n]) - 1);
+    g_lbActive[n][sizeof(g_lbActive[n]) - 1] = 0;
     n++;
   }
   f.close();
   return n;
+}
+
+// Tapping a leaderboard row opens this: the player's rank, level, XP and last-active
+// date. Tap anywhere (or Back) to dismiss and return to the list.
+static void fwLeaderboardPopup(int i) {
+  tft->fillScreen(COL_BG);
+  drawHeader(String(g_lbName[i]), true);
+  drawNav("Back", "", "");
+
+  tft->setTextDatum(MC_DATUM);
+  tft->setTextColor(COL_FG, COL_BG);
+  int cx = SCRW / 2;
+  int y  = CONTENTY + 20;
+  const int step = 22;
+  tft->drawString("Rank #" + String(i + 1), cx, y, 2); y += step;
+  tft->drawString("Level: " + String(g_lbLevel[i]), cx, y, 2); y += step;
+  tft->drawString("XP: " + String(g_lbXP[i]), cx, y, 2); y += step + 6;
+
+  tft->drawString("Last active:", cx, y, 2); y += step;
+  // "Aug. 28, 2026, 9:43 p.m. EST" — split date from time (2nd comma) so it fits.
+  String a = String(g_lbActive[i]);
+  if (a.length() == 0) {
+    tft->drawString("unknown", cx, y, 2);
+  } else {
+    int c1 = a.indexOf(','); int c2 = c1 >= 0 ? a.indexOf(',', c1 + 1) : -1;
+    if (c2 >= 0) {
+      String d = a.substring(0, c2); d.trim();
+      String t = a.substring(c2 + 1); t.trim();
+      tft->drawString(d, cx, y, 2); y += step;
+      tft->drawString(t, cx, y, 2);
+    } else {
+      tft->drawString(a, cx, y, 2);
+    }
+  }
+  tft->setTextDatum(TL_DATUM);
+
+  // Wait for a fresh tap (release), then dismiss.
+  bool wasDown = touch->isPressed();
+  for (;;) {
+    touch->run();
+    bool down = touch->isPressed();
+    if (!down && wasDown) return;           // released → dismiss
+    wasDown = down;
+    delay(12);
+  }
 }
 
 static void fwLeaderboardScreen() {
@@ -1815,7 +1869,14 @@ static void fwLeaderboardScreen() {
   String rows[FW_LB_MAX];
   for (int i = 0; i < n; i++)
     rows[i] = String(i + 1) + ". " + String(g_lbName[i]) + "  L" + String(g_lbLevel[i]) + "  " + String(g_lbXP[i]);
-  scrollList(cached ? "Leaderboard (cached)" : "Leaderboard", rows, n, false, "Back", "", "");
+
+  // Loop the list: a row tap opens that player's popup, then we redraw the list.
+  const char *title = cached ? "Leaderboard (cached)" : "Leaderboard";
+  for (;;) {
+    int r = scrollList(title, rows, n, false, "Back", "", "");
+    if (r < 0 || r >= n) break;             // Back / footer → leave
+    fwLeaderboardPopup(r);
+  }
 }
 
 static const char *MENU_ITEMS[] = { "Campaign", "Select Map", "Leaderboard", "Settings" };

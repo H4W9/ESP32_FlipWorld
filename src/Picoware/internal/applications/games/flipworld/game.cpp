@@ -322,10 +322,10 @@ namespace FlipWorld
                     // Increase health by 10% of the enemy's strength
                     other->health += self->strength * 0.1;
 
-                    // check max health
-                    if (other->health > 100)
+                    // check max health (scales with level, not a flat 100)
+                    if (other->health > other->max_health)
                     {
-                        other->health = 100;
+                        other->health = other->max_health;
                     }
 
                     // Decrease enemy health by player strength
