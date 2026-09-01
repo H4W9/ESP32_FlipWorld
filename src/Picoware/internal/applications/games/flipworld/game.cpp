@@ -216,6 +216,15 @@ namespace FlipWorld
             return;
         }
 
+        // Turn OFF text wrap on the actual print target (canvas sprite if present,
+        // else the raw panel). TFT_eSPI wraps by default: when a label runs past the
+        // right edge the tail jumps to x=0 — the "wrap to the other side" the labels
+        // showed. With wrap off the overflow is simply clipped at the edge instead.
+        if (game->draw->display->getCanvas())
+            game->draw->display->getCanvas()->setTextWrap(false, false);
+        else if (game->draw->display->getTFT())
+            game->draw->display->getTFT()->setTextWrap(false, false);
+
         // black backing box, then the text on top
         game->draw->display->fillRect(sx, sy, boxW, 10, TFT_BLACK);
         game->draw->text(Vector(sx, sy), username, color);
