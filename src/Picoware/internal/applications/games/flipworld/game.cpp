@@ -531,6 +531,8 @@ namespace FlipWorld
             Entity *e = lvl->getEntity(i);
             if (!e || e == exclude || e->type != ENTITY_ENEMY || e->state == ENTITY_DEAD || e->on_fire > 0)
                 continue;
+            if (e->size.x >= 24)
+                continue; // bosses (big sprites) are fire-immune — they can't be torched to death
             float ex = e->position.x + e->size.x / 2 - x, ey = e->position.y + e->size.y / 2 - y;
             if (ex * ex + ey * ey < 16 * 16)
             {
@@ -801,6 +803,8 @@ namespace FlipWorld
     static float g_bpX[BOSS_PROJ_MAX], g_bpY[BOSS_PROJ_MAX], g_bpDX[BOSS_PROJ_MAX], g_bpDY[BOSS_PROJ_MAX];
     static int   g_bossKind = 0;   // 0 = ogre (rocks), 1 = ghost (freezing ice-balls)
     static float g_bossFireCd = 0; // seconds until the boss may throw again
+    static float g_freezeImmune = 0; // seconds of post-thaw ice-immunity for the player,
+                                     // so an ice-ball can't re-freeze the instant they thaw
 
     // Nearest-neighbour upscale of an 8-bit mask (0xFF transparent, 0x00 ink) by an
     // integer factor — this is how a boss is drawn BIGGER than the rank-and-file. Returns
@@ -904,7 +908,14 @@ namespace FlipWorld
                     g_bpAct[i] = false;
                     if (g_bossKind == 0)
                         player->health -= 30;                          // rock: solid hit
-                    else { player->health -= 10; player->frozen = 4.0f; } // ice: light hit + 4s freeze
+                    else
+                    {
+                        player->health -= 10;                          // ice: light hit…
+                        // …and a 1s freeze — but ONLY if not already frozen and not in the
+                        // brief post-thaw grace, so repeated ice-balls can't chain-lock you.
+                        if (player->frozen <= 0 && g_freezeImmune <= 0)
+                            player->frozen = 1.0f;
+                    }
                     if (player->health <= 0)
                     {
                         player->state = ENTITY_DEAD;
@@ -1252,11 +1263,18 @@ namespace FlipWorld
 
         // Frozen (a ghost-boss ice-ball): can't move or attack for the duration. The
         // regen/timers above still tick and the camera below still tracks; only input
-        // is skipped (see the frozen gate on the touch block). Ticks down here.
+        // is skipped (see the frozen gate on the touch block). Ticks down here; the
+        // moment it thaws, a brief ice-immunity grace opens so you can't be instantly
+        // re-frozen (see g_freezeImmune in the boss ice-ball handler).
         if (self->frozen > 0)
         {
             self->frozen -= 1.0f / 30;
-            if (self->frozen < 0) self->frozen = 0;
+            if (self->frozen <= 0) { self->frozen = 0; g_freezeImmune = 0.5f; }
+        }
+        else if (g_freezeImmune > 0)
+        {
+            g_freezeImmune -= 1.0f / 30;
+            if (g_freezeImmune < 0) g_freezeImmune = 0;
         }
 
         Vector oldPos = self->position;
