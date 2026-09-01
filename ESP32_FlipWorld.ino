@@ -1606,6 +1606,8 @@ static void playMaps(int startIndex, bool campaign) {
     else if (mapIndex == 7)  FlipWorld::flyby_dragon_spawn(level, 2, 1, nullptr, 6); // Village: burn 6 objects
     else if (mapIndex == 11 || mapIndex == 14 || mapIndex == 19 || mapIndex == 22)
         FlipWorld::flyby_dragon_spawn(level, 2, 0, nullptr, 0); // Shadow Keep/Ruins/Crater/Serpent Marsh
+    if (mapIndex == 11) FlipWorld::ogre_boss_spawn(level);  // Shadow Keep: rock-throwing ogre boss
+    if (mapIndex == 17) FlipWorld::ghost_boss_spawn(level); // The Hollow: ice-throwing ghost boss
     if (mapIndex == FW_WORLD_COUNT - 1) FlipWorld::dragon_spawn(level); // boss in the last world
 
     FlipWorld::player_spawn(level, "sword", Vector(384, 192));

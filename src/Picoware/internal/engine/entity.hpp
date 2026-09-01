@@ -75,6 +75,11 @@ namespace Picoware
         // health rapidly and renders flames until destroyed; for world icons (see
         // burn_kind) it counts seconds burning so foliage can char after 10s.
         float on_fire = 0;
+        // FlipWorld: >0 = seconds this entity is frozen solid (a ghost-boss ice-ball).
+        // A frozen enemy can't move (enemy_update bails) but can still be attacked; a
+        // frozen player can't move or attack (player_update gates input). Ticks down
+        // in the respective update. Drawn with an ice overlay while > 0.
+        float frozen = 0;
         // FlipWorld: flammability of a world icon — 0 = inert (rocks, fences, water),
         // 1 = foliage (tree/plant/flower: small 3px flame, burns out to brown in 10s and
         // can't reignite), 2 = house (wide, persistent blaze). Only ENTITY_ICON uses it.

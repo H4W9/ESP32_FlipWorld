@@ -75,6 +75,16 @@ namespace FlipWorld
             return;
         }
 
+        // Frozen solid (a ghost-boss ice-ball): the enemy can't move for the duration,
+        // but it can still be attacked and killed. Timer ticks down here.
+        if (self->frozen > 0)
+        {
+            self->frozen -= 1.0f / 30;
+            if (self->frozen < 0) self->frozen = 0;
+            self->position_set(self->position);
+            return;
+        }
+
         // On fire (hit by a fireball): burn down rapidly, then die in a puff.
         if (self->on_fire > 0)
         {
@@ -278,6 +288,19 @@ namespace FlipWorld
                 game->draw->display->fillCircle(bx + fx, by + h - flick - 2, 3, 0xFC00);     // orange
                 game->draw->display->fillCircle(bx + fx, by + h - flick - 6, 2, 0xFFE0);     // hot core
             }
+        }
+
+        // Frozen: sheath the sprite in a translucent blue-white frost so it reads as
+        // iced-over (a few scattered ice specks over the body).
+        if (self->frozen > 0)
+        {
+            int bx = (int)(self->position.x - game->pos.x);
+            int by = (int)(self->position.y - game->pos.y);
+            int w = (int)self->size.x, h = (int)self->size.y;
+            game->draw->display->drawRect(bx - 1, by - 1, w + 2, h + 2, 0xE73F); // icy frame
+            for (int fy = 1; fy < h; fy += 3)
+                for (int fx = ((fy >> 1) & 1); fx < w; fx += 3)
+                    game->draw->display->drawPixel(bx + fx, by + fy, 0xFFFF);    // frost specks
         }
 
         // draw enemy health just above the enemy (sprite facing is handled in the
@@ -767,6 +790,188 @@ namespace FlipWorld
         level->entity_add(d);
     }
 
+    // ── Ogre / Ghost bosses ────────────────────────────────────────────────────
+    // Big, tough versions of the ordinary ogre/ghost that lob projectiles at the
+    // player. Only one boss is ever alive at a time (Shadow Keep's rock-throwing ogre,
+    // The Hollow's ice-throwing ghost), so a single shared projectile pool in module
+    // statics is enough. Movement, melee and being-worn-down reuse enemy_update /
+    // enemy_collision — the boss is just a beefy enemy with a ranged attack layered on.
+    static const int BOSS_PROJ_MAX = 4;
+    static bool  g_bpAct[BOSS_PROJ_MAX] = {false, false, false, false};
+    static float g_bpX[BOSS_PROJ_MAX], g_bpY[BOSS_PROJ_MAX], g_bpDX[BOSS_PROJ_MAX], g_bpDY[BOSS_PROJ_MAX];
+    static int   g_bossKind = 0;   // 0 = ogre (rocks), 1 = ghost (freezing ice-balls)
+    static float g_bossFireCd = 0; // seconds until the boss may throw again
+
+    // Nearest-neighbour upscale of an 8-bit mask (0xFF transparent, 0x00 ink) by an
+    // integer factor — this is how a boss is drawn BIGGER than the rank-and-file. Returns
+    // a malloc'd RAM buffer the caller must free; the Entity ctor copies it (is_progmem
+    // = false → from_byte_array copies), so freeing right after spawn is safe.
+    static uint8_t *scale_mask(const uint8_t *src, int w, int h, int f)
+    {
+        uint8_t *out = (uint8_t *)malloc((size_t)w * f * h * f);
+        if (!out) return nullptr;
+        int W = w * f;
+        for (int y = 0; y < h * f; y++)
+            for (int x = 0; x < W; x++)
+                out[y * W + x] = pgm_read_byte_near(&src[(y / f) * w + (x / f)]);
+        return out;
+    }
+
+    static void boss_update(Entity *self, Game *game)
+    {
+        // Movement, melee and taking damage are the ordinary enemy behaviour.
+        enemy_update(self, game);
+        if (self->state == ENTITY_DEAD)
+        {
+            for (int i = 0; i < BOSS_PROJ_MAX; i++) g_bpAct[i] = false;
+            return;
+        }
+        const float dt = 1.0f / 30;
+        Level *lvl = game->current_level;
+        if (!lvl) return;
+
+        // find the player
+        Entity *player = nullptr;
+        for (int i = 0; i < lvl->getEntityCount(); i++)
+        {
+            Entity *e = lvl->getEntity(i);
+            if (e && e->is_player) { player = e; break; }
+        }
+
+        // Throw a projectile at the player on a cooldown, when a slot is free and the
+        // player is in range.
+        if (g_bossFireCd > 0) g_bossFireCd -= dt;
+        int freeSlot = -1, inAir = 0;
+        for (int i = 0; i < BOSS_PROJ_MAX; i++) { if (g_bpAct[i]) inAir++; else if (freeSlot < 0) freeSlot = i; }
+        float cx = self->position.x + self->size.x / 2, cy = self->position.y + self->size.y / 2;
+        if (player && freeSlot >= 0 && inAir < BOSS_PROJ_MAX && g_bossFireCd <= 0)
+        {
+            float px = player->position.x + player->size.x / 2, py = player->position.y + player->size.y / 2;
+            float dx = px - cx, dy = py - cy, dist = sqrtf(dx * dx + dy * dy);
+            if (dist > 20 && dist < 460)
+            {
+                float sp = (g_bossKind == 0) ? 3.0f : 3.6f; // ice flies a touch faster
+                g_bpAct[freeSlot] = true; g_bpX[freeSlot] = cx; g_bpY[freeSlot] = cy;
+                g_bpDX[freeSlot] = dx / dist * sp; g_bpDY[freeSlot] = dy / dist * sp;
+                g_bossFireCd = (g_bossKind == 0) ? 1.5f : 1.8f;
+            }
+        }
+
+        // Advance projectiles and resolve hits.
+        for (int i = 0; i < BOSS_PROJ_MAX; i++)
+        {
+            if (!g_bpAct[i]) continue;
+            g_bpX[i] += g_bpDX[i]; g_bpY[i] += g_bpDY[i];
+            if (g_bpX[i] < 0 || g_bpY[i] < 0 || g_bpX[i] > lvl->size.x || g_bpY[i] > lvl->size.y)
+            {
+                g_bpAct[i] = false; continue;
+            }
+            // Ice-balls freeze any OTHER enemy they strike for 10s (rocks don't).
+            if (g_bossKind == 1)
+            {
+                bool hitFoe = false;
+                for (int e = 0; e < lvl->getEntityCount(); e++)
+                {
+                    Entity *en = lvl->getEntity(e);
+                    if (!en || en == self || en->type != ENTITY_ENEMY || en->state == ENTITY_DEAD) continue;
+                    float ex = en->position.x + en->size.x / 2 - g_bpX[i];
+                    float ey = en->position.y + en->size.y / 2 - g_bpY[i];
+                    if (ex * ex + ey * ey < 14 * 14) { en->frozen = 10.0f; hitFoe = true; break; }
+                }
+                if (hitFoe) { g_bpAct[i] = false; continue; }
+            }
+            // Player hit.
+            if (player)
+            {
+                float ddx = g_bpX[i] - (player->position.x + player->size.x / 2);
+                float ddy = g_bpY[i] - (player->position.y + player->size.y / 2);
+                if (ddx * ddx + ddy * ddy < 12 * 12)
+                {
+                    g_bpAct[i] = false;
+                    if (g_bossKind == 0)
+                        player->health -= 30;                          // rock: solid hit
+                    else { player->health -= 10; player->frozen = 4.0f; } // ice: light hit + 4s freeze
+                    if (player->health <= 0)
+                    {
+                        player->state = ENTITY_DEAD;
+                        player->health = player->max_health;
+                        player->frozen = 0;
+                        player->position = player->start_position;
+                        player->position_set(player->start_position);
+                    }
+                    else
+                        player->state = ENTITY_ATTACKED;
+                }
+            }
+        }
+    }
+
+    static void boss_render(Entity *self, Draw *draw, Game *game)
+    {
+        if (self->state == ENTITY_DEAD) return;
+        char hs[24];
+        snprintf(hs, sizeof(hs), "%s %.0f", g_bossKind == 0 ? "OGRE BOSS" : "GHOST BOSS", (double)self->health);
+        draw_username(game, self->position, hs, (int)self->size.y + 4, self->ink_color);
+        for (int i = 0; i < BOSS_PROJ_MAX; i++)
+        {
+            if (!g_bpAct[i]) continue;
+            int sx = (int)(g_bpX[i] - game->pos.x), sy = (int)(g_bpY[i] - game->pos.y);
+            if (g_bossKind == 0)
+            {
+                game->draw->display->fillCircle(sx, sy, 4, 0x8410); // grey rock
+                game->draw->display->fillCircle(sx, sy, 2, 0xB596); // lighter core
+            }
+            else
+            {
+                game->draw->display->fillCircle(sx, sy, 4, 0x2D7F); // icy-blue ice-ball
+                game->draw->display->fillCircle(sx, sy, 2, 0xFFFF); // white core
+            }
+        }
+    }
+
+    // Shared spawn: a scaled-up ogre/ghost with boss stats + boss_update/boss_render.
+    static void boss_spawn(Level *level, const char *baseName, int kind, Vector pos,
+                           int scale, float health, float strength, float speed, uint16_t ink)
+    {
+        PlayerContext bl = player_context_get(baseName, true);
+        PlayerContext br = player_context_get(baseName, false);
+        if (bl.data == NULL || br.data == NULL) return;
+        int w = (int)bl.size.x, h = (int)bl.size.y;
+        uint8_t *sl = scale_mask(bl.data, w, h, scale);
+        uint8_t *sr = scale_mask(br.data, w, h, scale);
+        if (!sl || !sr) { free(sl); free(sr); return; }
+        Vector bsize = Vector(w * scale, h * scale);
+        Entity *b = new Entity(level->getBoard(), baseName, ENTITY_ENEMY, pos, bsize,
+                               sl, sl, sr, NULL, NULL, boss_update, boss_render, enemy_collision, true, false);
+        free(sl); free(sr); // the Entity ctor copied the masks (is_progmem = false)
+        b->ink_color = ink;
+        b->direction = ENTITY_LEFT;
+        b->start_position = pos;
+        b->end_position = Vector(pos.x - 120, pos.y); // paces back and forth across its lair
+        b->move_timer = 0.6f;
+        b->speed = speed;
+        b->attack_timer = 0.8f;
+        b->strength = strength;
+        b->health = health;
+        b->max_health = health;
+        g_bossKind = kind;
+        g_bossFireCd = 1.6f;
+        for (int i = 0; i < BOSS_PROJ_MAX; i++) g_bpAct[i] = false;
+        level->entity_add(b);
+    }
+
+    void ogre_boss_spawn(Level *level)
+    {
+        // Shadow Keep: 550 HP, 3× a normal ogre, throws rocks. Dark red-brown ink.
+        boss_spawn(level, "ogre", 0, Vector(300, 170), 3, 550, 34, 48, 0x8A08);
+    }
+
+    void ghost_boss_spawn(Level *level)
+    {
+        // The Hollow: 750 HP, 2× a normal ghost, throws freezing ice-balls. Icy-blue ink.
+        boss_spawn(level, "ghost", 1, Vector(300, 170), 2, 750, 22, 56, 0xAEDF);
+    }
+
     // ── Flyby (cameo) dragon ──────────────────────────────────────────────────
     // An UNDEFEATABLE dragon that streaks across the map: it makes N passes, throws
     // fire (at the player, or at a house which it sets alight), then leaves. It's an
@@ -1031,6 +1236,15 @@ namespace FlipWorld
         // update plyer traits
         update_stats(self);
 
+        // Frozen (a ghost-boss ice-ball): can't move or attack for the duration. The
+        // regen/timers above still tick and the camera below still tracks; only input
+        // is skipped (see the frozen gate on the touch block). Ticks down here.
+        if (self->frozen > 0)
+        {
+            self->frozen -= 1.0f / 30;
+            if (self->frozen < 0) self->frozen = 0;
+        }
+
         Vector oldPos = self->position;
         Vector newPos = oldPos;
 
@@ -1045,6 +1259,7 @@ namespace FlipWorld
         const float STEP = 6;
         float mx = 0, my = 0;
         bool centreTap = false;
+        bool frozen = self->frozen > 0; // no steering or attacking while iced
         TouchInput *touch = game->input_manager ? game->input_manager->getTouch() : nullptr;
 
         // Tapping strictly the HP row of the stats HUD (top-left, first line of
@@ -1060,7 +1275,7 @@ namespace FlipWorld
         if (hpRowTap && !g_statsTapHeld) g_healthBar = !g_healthBar; // toggle on the press edge
         g_statsTapHeld = hpRowTap;
 
-        if (touch && touch->isPressed())
+        if (!frozen && touch && touch->isPressed())
         {
             float w = game->size.x, h = game->size.y;
             uint8_t n = touch->count();
@@ -1213,6 +1428,19 @@ namespace FlipWorld
 
     static void player_render(Entity *self, Draw *draw, Game *game)
     {
+        // Frozen (ghost-boss ice): sheath the hero in frost + flag "FROZEN" so it's
+        // clear why the controls aren't responding.
+        if (self->frozen > 0)
+        {
+            int bx = (int)(self->position.x - game->pos.x);
+            int by = (int)(self->position.y - game->pos.y);
+            int w = (int)self->size.x, h = (int)self->size.y;
+            game->draw->display->drawRect(bx - 1, by - 1, w + 2, h + 2, 0xE73F);
+            for (int fy = 1; fy < h; fy += 3)
+                for (int fx = ((fy >> 1) & 1); fx < w; fx += 3)
+                    game->draw->display->drawPixel(bx + fx, by + fy, 0xFFFF);
+            draw_username(game, self->position, "FROZEN", 52, 0xE73F);
+        }
         // Player name floated above the sprite (raised to 40px so the health bar tucked
         // under it never overlays it). White so it's distinct from the red enemy-health
         // labels and the green stat HUD.
