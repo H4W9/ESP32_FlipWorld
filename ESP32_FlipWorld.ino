@@ -1604,9 +1604,12 @@ static void playMaps(int startIndex, bool campaign) {
     // strafe the player over 2 passes, then leave.
     if (mapIndex == 3)  FlipWorld::flyby_dragon_spawn(level, 2, 1, nullptr, 7);   // Meadow: burn 7 trees/flowers
     else if (mapIndex == 7)  FlipWorld::flyby_dragon_spawn(level, 2, 1, nullptr, 6); // Village: burn 6 objects
-    else if (mapIndex == 11 || mapIndex == 14 || mapIndex == 19 || mapIndex == 22)
-        FlipWorld::flyby_dragon_spawn(level, 2, 0, nullptr, 0); // Shadow Keep/Ruins/Crater/Serpent Marsh
+    else if (mapIndex == 11 || mapIndex == 14 || mapIndex == 17 || mapIndex == 19 || mapIndex == 22)
+        FlipWorld::flyby_dragon_spawn(level, 2, 0, nullptr, 0); // Shadow Keep/Ruins/The Hollow/Crater/Serpent Marsh
+    if (mapIndex == 4)  FlipWorld::cyclops_boss_spawn(level); // Stronghold: one-eyed ogre boss (sloppy aim)
+    if (mapIndex == 9)  FlipWorld::ogre_strafe_spawn(level);  // Wasteland: strafing ogre cameo (rocks)
     if (mapIndex == 11) FlipWorld::ogre_boss_spawn(level);  // Shadow Keep: rock-throwing ogre boss
+    if (mapIndex == 16) FlipWorld::ghost_strafe_spawn(level); // Frozen Lake: strafing ghost cameo
     if (mapIndex == 17) FlipWorld::ghost_boss_spawn(level); // The Hollow: ice-throwing ghost boss
     if (mapIndex == FW_WORLD_COUNT - 1) FlipWorld::dragon_spawn(level); // boss in the last world
 
@@ -1813,22 +1816,33 @@ static int fwLeaderboardLoadCache() {
 
 // Tapping a leaderboard row opens this: the player's rank, level, XP and last-active
 // date. Tap anywhere (or Back) to dismiss and return to the list.
+// One popup row: gray `label` then normal-weight `value`, the pair centred on cx
+// (matches the About screen's gray-label styling). Empty value → a lone gray label.
+static void fwPopupRow(const String &label, const String &value, int cx, int y) {
+  tft->setTextDatum(ML_DATUM);
+  int lw = tft->textWidth(label, 2);
+  int vw = value.length() ? tft->textWidth(value, 2) : 0;
+  int x = cx - (lw + vw) / 2;
+  tft->setTextColor(COL_DIM, COL_BG); tft->drawString(label, x, y, 2);
+  if (value.length()) { tft->setTextColor(COL_FG, COL_BG); tft->drawString(value, x + lw, y, 2); }
+}
+
 static void fwLeaderboardPopup(int i) {
   tft->fillScreen(COL_BG);
   drawHeader(String(g_lbName[i]), true);
   drawNav("Back", "", "");
 
-  tft->setTextDatum(MC_DATUM);
-  tft->setTextColor(COL_FG, COL_BG);
   int cx = SCRW / 2;
   int y  = CONTENTY + 20;
   const int step = 22;
-  tft->drawString("Rank #" + String(i + 1), cx, y, 2); y += step;
-  tft->drawString("Level: " + String(g_lbLevel[i]), cx, y, 2); y += step;
-  tft->drawString("XP: " + String(g_lbXP[i]), cx, y, 2); y += step + 6;
+  fwPopupRow("Rank #", String(i + 1), cx, y); y += step;
+  fwPopupRow("Level: ", String(g_lbLevel[i]), cx, y); y += step;
+  fwPopupRow("XP: ", String(g_lbXP[i]), cx, y); y += step + 6;
 
-  tft->drawString("Last active:", cx, y, 2); y += step;
+  fwPopupRow("Last active:", "", cx, y); y += step;
   // "Aug. 28, 2026, 9:43 p.m. EST" — split date from time (2nd comma) so it fits.
+  tft->setTextDatum(MC_DATUM);
+  tft->setTextColor(COL_FG, COL_BG);
   String a = String(g_lbActive[i]);
   if (a.length() == 0) {
     tft->drawString("unknown", cx, y, 2);

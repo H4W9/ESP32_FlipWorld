@@ -801,10 +801,19 @@ namespace FlipWorld
     static const int BOSS_PROJ_MAX = 4;
     static bool  g_bpAct[BOSS_PROJ_MAX] = {false, false, false, false};
     static float g_bpX[BOSS_PROJ_MAX], g_bpY[BOSS_PROJ_MAX], g_bpDX[BOSS_PROJ_MAX], g_bpDY[BOSS_PROJ_MAX];
-    static int   g_bossKind = 0;   // 0 = ogre (rocks), 1 = ghost (freezing ice-balls)
+    static int   g_bossKind = 0;   // 0 = rocks (ogre/cyclops), 1 = freezing ice-balls (ghost)
     static float g_bossFireCd = 0; // seconds until the boss may throw again
     static float g_freezeImmune = 0; // seconds of post-thaw ice-immunity for the player,
                                      // so an ice-ball can't re-freeze the instant they thaw
+    // Patrol state: the bosses walk the FULL width of the map like the dragon, bouncing
+    // off the edges. Ogre-type bosses tramp along a fixed ground line (no swoop); the
+    // ghost floats — homing its lane toward the player with a gentle vertical swoop.
+    static float g_bossMoveDir = -1;         // +1 right / -1 left
+    static float g_bossBaseY = 0;            // the walk/swoop lane height
+    static float g_bossPhase = 0;            // swoop phase (ghost only)
+    static bool  g_bossSwoop = false;        // true = float+swoop (ghost); false = walk flat (ogres)
+    static float g_bossAim = 0;              // throw jitter in radians (0 = dead-on; the cyclops is sloppy)
+    static const char *g_bossLabel = "BOSS"; // name floated above the boss
 
     // Nearest-neighbour upscale of an 8-bit mask (0xFF transparent, 0x00 ink) by an
     // integer factor — this is how a boss is drawn BIGGER than the rank-and-file. Returns
@@ -823,8 +832,6 @@ namespace FlipWorld
 
     static void boss_update(Entity *self, Game *game)
     {
-        // Movement, melee and taking damage are the ordinary enemy behaviour.
-        enemy_update(self, game);
         if (self->state == ENTITY_DEAD)
         {
             for (int i = 0; i < BOSS_PROJ_MAX; i++) g_bpAct[i] = false;
@@ -834,6 +841,9 @@ namespace FlipWorld
         Level *lvl = game->current_level;
         if (!lvl) return;
 
+        // keep the melee cadence ticking (enemy_collision gates the boss's bite on it)
+        self->elapsed_attack_timer += dt;
+
         // find the player
         Entity *player = nullptr;
         for (int i = 0; i < lvl->getEntityCount(); i++)
@@ -841,6 +851,29 @@ namespace FlipWorld
             Entity *e = lvl->getEntity(i);
             if (e && e->is_player) { player = e; break; }
         }
+
+        // Walk the FULL width of the map, bouncing off the edges (like the dragon).
+        // Ogres tramp along a fixed ground line; the ghost floats, homing its lane
+        // toward the player with a gentle vertical swoop.
+        const float buffer = 16;
+        float minX = buffer, maxX = lvl->size.x - buffer - self->size.x;
+        if (maxX < minX) maxX = minX;
+        float nx = self->position.x + g_bossMoveDir * self->speed * dt;
+        if (nx <= minX) { nx = minX; g_bossMoveDir = 1.0f; }
+        else if (nx >= maxX) { nx = maxX; g_bossMoveDir = -1.0f; }
+        self->direction = (g_bossMoveDir < 0) ? ENTITY_LEFT : ENTITY_RIGHT;
+        float ny = g_bossBaseY;
+        if (g_bossSwoop && player)
+        {
+            float wantY = player->position.y + player->size.y / 2 - self->size.y / 2;
+            g_bossBaseY += (wantY - g_bossBaseY) * 0.04f;
+            if (g_bossBaseY < 8) g_bossBaseY = 8;
+            float maxY = lvl->size.y - self->size.y - 8;
+            if (g_bossBaseY > maxY) g_bossBaseY = maxY;
+            g_bossPhase += dt;
+            ny = g_bossBaseY + sinf(g_bossPhase * 1.6f) * 16.0f;
+        }
+        self->position_set(Vector(nx, ny));
 
         // Throw a projectile at the player on a cooldown, when a slot is free and the
         // player is in range.
@@ -855,8 +888,11 @@ namespace FlipWorld
             if (dist > 20 && dist < 460)
             {
                 float sp = (g_bossKind == 0) ? 3.0f : 3.6f; // ice flies a touch faster
+                float ang = atan2f(dy, dx);
+                if (g_bossAim > 0) // sloppy shooters (the cyclops) spray off-target
+                    ang += ((float)random(-1000, 1001) / 1000.0f) * g_bossAim;
                 g_bpAct[freeSlot] = true; g_bpX[freeSlot] = cx; g_bpY[freeSlot] = cy;
-                g_bpDX[freeSlot] = dx / dist * sp; g_bpDY[freeSlot] = dy / dist * sp;
+                g_bpDX[freeSlot] = cosf(ang) * sp; g_bpDY[freeSlot] = sinf(ang) * sp;
                 g_bossFireCd = (g_bossKind == 0) ? 1.5f : 1.8f;
             }
         }
@@ -934,8 +970,8 @@ namespace FlipWorld
     static void boss_render(Entity *self, Draw *draw, Game *game)
     {
         if (self->state == ENTITY_DEAD) return;
-        char hs[24];
-        snprintf(hs, sizeof(hs), "%s %.0f", g_bossKind == 0 ? "OGRE BOSS" : "GHOST BOSS", (double)self->health);
+        char hs[28];
+        snprintf(hs, sizeof(hs), "%s %.0f", g_bossLabel, (double)self->health);
         draw_username(game, self->position, hs, (int)self->size.y + 4, self->ink_color);
         for (int i = 0; i < BOSS_PROJ_MAX; i++)
         {
@@ -954,9 +990,12 @@ namespace FlipWorld
         }
     }
 
-    // Shared spawn: a scaled-up ogre/ghost with boss stats + boss_update/boss_render.
-    static void boss_spawn(Level *level, const char *baseName, int kind, Vector pos,
-                           int scale, float health, float strength, float speed, uint16_t ink)
+    // Shared spawn: a scaled-up ogre/ghost/cyclops with boss stats + boss_update/render.
+    // kind: 0 = rocks, 1 = freezing ice-balls. swoop: ghost floats+swoops, ogres walk
+    // flat. aimJitter: radians of random throw spread (0 = dead-on).
+    static void boss_spawn(Level *level, const char *baseName, int kind, const char *label,
+                           Vector pos, int scale, float health, float strength, float speed,
+                           uint16_t ink, bool swoop, float aimJitter)
     {
         PlayerContext bl = player_context_get(baseName, true);
         PlayerContext br = player_context_get(baseName, false);
@@ -972,29 +1011,200 @@ namespace FlipWorld
         b->ink_color = ink;
         b->direction = ENTITY_LEFT;
         b->start_position = pos;
-        b->end_position = Vector(pos.x - 120, pos.y); // paces back and forth across its lair
-        b->move_timer = 0.6f;
+        b->end_position = pos;
         b->speed = speed;
         b->attack_timer = 0.8f;
         b->strength = strength;
         b->health = health;
         b->max_health = health;
         g_bossKind = kind;
+        g_bossLabel = label;
         g_bossFireCd = 1.6f;
+        g_bossMoveDir = -1;
+        g_bossBaseY = pos.y;
+        g_bossPhase = 0;
+        g_bossSwoop = swoop;
+        g_bossAim = aimJitter;
         for (int i = 0; i < BOSS_PROJ_MAX; i++) g_bpAct[i] = false;
         level->entity_add(b);
     }
 
     void ogre_boss_spawn(Level *level)
     {
-        // Shadow Keep: 550 HP, 3× a normal ogre, throws rocks. Dark red-brown ink.
-        boss_spawn(level, "ogre", 0, Vector(300, 170), 3, 550, 34, 48, 0x8A08);
+        // Shadow Keep: 550 HP, 3× a normal ogre, throws rocks, walks flat. Red-brown ink.
+        boss_spawn(level, "ogre", 0, "OGRE BOSS", Vector(300, 170), 3, 550, 34, 48, 0x8A08, false, 0.0f);
     }
 
     void ghost_boss_spawn(Level *level)
     {
-        // The Hollow: 750 HP, 2× a normal ghost, throws freezing ice-balls. Icy-blue ink.
-        boss_spawn(level, "ghost", 1, Vector(300, 170), 2, 750, 22, 56, 0xAEDF);
+        // The Hollow: 750 HP, 2× a normal ghost, throws freezing ice-balls, floats and
+        // swoops like the dragon. Icy-blue ink.
+        boss_spawn(level, "ghost", 1, "GHOST BOSS", Vector(300, 170), 2, 750, 22, 56, 0xAEDF, true, 0.0f);
+    }
+
+    void cyclops_boss_spawn(Level *level)
+    {
+        // Stronghold: one-eyed ogre. 450 HP, 3× a normal cyclops, throws rocks like the
+        // ogre boss but with sloppy aim (~0.35 rad spread). Walks flat, no swoop. Muddy ink.
+        boss_spawn(level, "cyclops", 0, "CYCLOPS BOSS", Vector(300, 170), 3, 450, 30, 46, 0x7B4A, false, 0.35f);
+    }
+
+    // ── Strafing ghost (cameo) ──────────────────────────────────────────────────
+    // An UNDEFEATABLE ghost that streaks across the map making a few passes, hurling
+    // freezing ice-balls at the player, then leaves. ENTITY_NPC (no collision), so it
+    // can't be hit and never gates the map. Used for the Frozen Lake ghost (ice-balls)
+    // and the Wasteland ogre (rocks).
+    static bool  g_gsFbAct[2] = {false, false};
+    static float g_gsFbX[2], g_gsFbY[2], g_gsFbDX[2], g_gsFbDY[2];
+    static int   g_gsPasses = 0;
+    static int   g_gsKind = 0; // 0 = rocks (ogre), 1 = freezing ice-balls (ghost)
+    static float g_gsDir = 1, g_gsY = 0, g_gsFireCd = 0;
+
+    static void strafe_update(Entity *self, Game *game)
+    {
+        if (self->state == ENTITY_DEAD || !self->is_active) return;
+        const float dt = 1.0f / 30;
+        Level *lvl = game->current_level;
+        if (!lvl) return;
+        Entity *player = nullptr;
+        for (int i = 0; i < lvl->getEntityCount(); i++)
+        {
+            Entity *e = lvl->getEntity(i);
+            if (e && e->is_player) { player = e; break; }
+        }
+
+        // fly straight across the map at its current lane height
+        float nx = self->position.x + g_gsDir * self->speed * dt;
+        self->direction = (g_gsDir < 0) ? ENTITY_LEFT : ENTITY_RIGHT;
+        self->position_set(Vector(nx, g_gsY));
+
+        // exited a side → count a pass; drop the lane to the player's height and turn
+        // back, or leave for good after the last pass
+        float off = self->size.x + 40;
+        if ((g_gsDir > 0 && nx > lvl->size.x + 20) || (g_gsDir < 0 && nx < -off))
+        {
+            g_gsPasses--;
+            if (g_gsPasses <= 0) { self->is_active = false; g_gsFbAct[0] = g_gsFbAct[1] = false; return; }
+            g_gsDir = -g_gsDir;
+            if (player)
+            {
+                g_gsY = player->position.y + player->size.y / 2 - self->size.y / 2;
+                if (g_gsY < 8) g_gsY = 8;
+                float my = lvl->size.y - self->size.y - 8;
+                if (g_gsY > my) g_gsY = my;
+            }
+            self->position_set(Vector(g_gsDir > 0 ? -self->size.x : lvl->size.x, g_gsY));
+        }
+
+        // throw a projectile at the player on a cooldown
+        if (g_gsFireCd > 0) g_gsFireCd -= dt;
+        float cx = self->position.x + self->size.x / 2, cy = self->position.y + self->size.y / 2;
+        int slot = -1;
+        for (int i = 0; i < 2; i++) if (!g_gsFbAct[i]) { slot = i; break; }
+        if (player && slot >= 0 && g_gsFireCd <= 0)
+        {
+            float px = player->position.x + player->size.x / 2, py = player->position.y + player->size.y / 2;
+            float dx = px - cx, dy = py - cy, d = sqrtf(dx * dx + dy * dy);
+            if (d > 20 && d < 500)
+            {
+                float sp = 3.6f;
+                g_gsFbAct[slot] = true; g_gsFbX[slot] = cx; g_gsFbY[slot] = cy;
+                g_gsFbDX[slot] = dx / d * sp; g_gsFbDY[slot] = dy / d * sp;
+                g_gsFireCd = 1.2f;
+            }
+        }
+        for (int i = 0; i < 2; i++)
+        {
+            if (!g_gsFbAct[i]) continue;
+            g_gsFbX[i] += g_gsFbDX[i]; g_gsFbY[i] += g_gsFbDY[i];
+            if (g_gsFbX[i] < 0 || g_gsFbY[i] < 0 || g_gsFbX[i] > lvl->size.x || g_gsFbY[i] > lvl->size.y)
+            {
+                g_gsFbAct[i] = false; continue;
+            }
+            if (player)
+            {
+                float ddx = g_gsFbX[i] - (player->position.x + player->size.x / 2);
+                float ddy = g_gsFbY[i] - (player->position.y + player->size.y / 2);
+                if (ddx * ddx + ddy * ddy < 12 * 12)
+                {
+                    g_gsFbAct[i] = false;
+                    if (g_gsKind == 0)
+                        player->health -= 30; // rock: solid hit
+                    else
+                    {
+                        player->health -= 10; // ice: light hit + freeze (ghost-boss rules)
+                        if (player->frozen <= 0 && g_freezeImmune <= 0) player->frozen = 1.0f;
+                    }
+                    if (player->health <= 0)
+                    {
+                        player->state = ENTITY_DEAD;
+                        player->health = player->max_health;
+                        player->frozen = 0;
+                        player->position = player->start_position;
+                        player->position_set(player->start_position);
+                    }
+                    else
+                        player->state = ENTITY_ATTACKED;
+                }
+            }
+        }
+    }
+
+    static void strafe_render(Entity *self, Draw *draw, Game *game)
+    {
+        if (self->state == ENTITY_DEAD || !self->is_active) return;
+        for (int i = 0; i < 2; i++)
+        {
+            if (!g_gsFbAct[i]) continue;
+            int sx = (int)(g_gsFbX[i] - game->pos.x), sy = (int)(g_gsFbY[i] - game->pos.y);
+            if (g_gsKind == 0)
+            {
+                game->draw->display->fillCircle(sx, sy, 4, 0x8410); // grey rock
+                game->draw->display->fillCircle(sx, sy, 2, 0xB596); // lighter core
+            }
+            else
+            {
+                game->draw->display->fillCircle(sx, sy, 4, 0x2D7F); // icy-blue ice-ball
+                game->draw->display->fillCircle(sx, sy, 2, 0xFFFF); // white core
+            }
+        }
+    }
+
+    // Shared strafe cameo spawn. kind: 0 = rocks, 1 = freezing ice-balls.
+    static void strafe_spawn(Level *level, const char *baseName, int kind, int scale, uint16_t ink)
+    {
+        PlayerContext gl = player_context_get(baseName, true);
+        PlayerContext gr = player_context_get(baseName, false);
+        if (gl.data == NULL || gr.data == NULL) return;
+        int w = (int)gl.size.x, h = (int)gl.size.y;
+        uint8_t *sl = scale_mask(gl.data, w, h, scale);
+        uint8_t *sr = scale_mask(gr.data, w, h, scale);
+        if (!sl || !sr) { free(sl); free(sr); return; }
+        Vector gsize = Vector(w * scale, h * scale);
+        Vector pos = Vector(-gsize.x, 90);
+        Entity *g = new Entity(level->getBoard(), "Strafe", ENTITY_NPC, pos, gsize,
+                               sl, sl, sr, NULL, NULL, strafe_update, strafe_render, NULL, true, false);
+        free(sl); free(sr);
+        g->ink_color = ink;
+        g->direction = ENTITY_RIGHT;
+        g->speed = 150;                 // fast streak
+        g->health = 1; g->max_health = 1;
+        g_gsKind = kind;
+        g_gsDir = 1; g_gsY = pos.y; g_gsPasses = 3; g_gsFireCd = 0.6f;
+        g_gsFbAct[0] = g_gsFbAct[1] = false;
+        level->entity_add(g);
+    }
+
+    void ghost_strafe_spawn(Level *level)
+    {
+        // Frozen Lake: a 2× ghost streaks across in 3 passes throwing freezing ice-balls.
+        strafe_spawn(level, "ghost", 1, 2, 0xAEDF);
+    }
+
+    void ogre_strafe_spawn(Level *level)
+    {
+        // Wasteland: a 3× ogre streaks across in 3 passes hurling rocks. Red-brown ink.
+        strafe_spawn(level, "ogre", 0, 3, 0x8A08);
     }
 
     // ── Flyby (cameo) dragon ──────────────────────────────────────────────────
