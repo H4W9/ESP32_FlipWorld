@@ -203,18 +203,21 @@ namespace FlipWorld
     // enemy's health readout while attacking.
     static void draw_username(Game *game, Vector pos, const char *username, int yOffset = 10, uint16_t color = TFT_RED)
     {
-        float sx = pos.x - game->pos.x - (strlen(username) * 2);
-        float sy = pos.y - game->pos.y - yOffset;
+        int len  = (int)strlen(username);
+        int boxW = len * 5 + 4;                       // actual backing-box width
+        int sx   = (int)(pos.x - game->pos.x) - (len * 2);
+        int sy   = (int)(pos.y - game->pos.y) - yOffset;
 
-        // skip if drawing the label is off-screen
-        if (pos.x - game->pos.x - (strlen(username) * 2 + 8) < 0 || pos.x - game->pos.x + (strlen(username) * 2 + 8) > game->size.x ||
-            sy < 0 || sy > game->size.y)
+        // Cull the whole label if any part of the box would fall off an edge.
+        // (Culling on the box's true bounds — not a rough margin — so an overflowing
+        // label can never wrap around to the far side of the screen.)
+        if (sx < 0 || sx + boxW > game->size.x || sy < 0 || sy + 10 > game->size.y)
         {
             return;
         }
 
         // black backing box, then the text on top
-        game->draw->display->fillRect(sx, sy, strlen(username) * 5 + 4, 10, TFT_BLACK);
+        game->draw->display->fillRect(sx, sy, boxW, 10, TFT_BLACK);
         game->draw->text(Vector(sx, sy), username, color);
     }
 
