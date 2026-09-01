@@ -866,8 +866,9 @@ namespace FlipWorld
             {
                 g_bpAct[i] = false; continue;
             }
-            // Ice-balls freeze any OTHER enemy they strike for 10s (rocks don't).
-            if (g_bossKind == 1)
+            // Projectiles also strike any OTHER enemy: rocks damage them, ice-balls
+            // damage AND freeze them (10s). A killed foe drops like any other. (The
+            // boss can't hit itself.)
             {
                 bool hitFoe = false;
                 for (int e = 0; e < lvl->getEntityCount(); e++)
@@ -876,7 +877,20 @@ namespace FlipWorld
                     if (!en || en == self || en->type != ENTITY_ENEMY || en->state == ENTITY_DEAD) continue;
                     float ex = en->position.x + en->size.x / 2 - g_bpX[i];
                     float ey = en->position.y + en->size.y / 2 - g_bpY[i];
-                    if (ex * ex + ey * ey < 14 * 14) { en->frozen = 10.0f; hitFoe = true; break; }
+                    if (ex * ex + ey * ey < 14 * 14)
+                    {
+                        en->health -= (g_bossKind == 0) ? 30 : 10;
+                        if (g_bossKind == 1) en->frozen = 10.0f;
+                        if (en->health <= 0)
+                        {
+                            en->state = ENTITY_DEAD;
+                            en->health = 0;
+                            en->position = Vector(-100, -100);
+                            en->position_set(en->position);
+                        }
+                        hitFoe = true;
+                        break;
+                    }
                 }
                 if (hitFoe) { g_bpAct[i] = false; continue; }
             }
