@@ -919,7 +919,7 @@ namespace FlipWorld
                     float ey = en->position.y + en->size.y / 2 - g_bpY[i];
                     if (ex * ex + ey * ey < 14 * 14)
                     {
-                        en->health -= (g_bossKind == 0) ? 30 : 10;
+                        en->health -= (g_bossKind == 0) ? 30 : 35; // ice hits a bit harder than rock
                         if (g_bossKind == 1) en->frozen = 10.0f;
                         if (en->health <= 0)
                         {
@@ -946,7 +946,7 @@ namespace FlipWorld
                         player->health -= 30;                          // rock: solid hit
                     else
                     {
-                        player->health -= 10;                          // ice: light hit…
+                        player->health -= 35;                          // ice: hits a bit harder than rock…
                         // …and a 1s freeze — but ONLY if not already frozen and not in the
                         // brief post-thaw grace, so repeated ice-balls can't chain-lock you.
                         if (player->frozen <= 0 && g_freezeImmune <= 0)
@@ -1132,7 +1132,7 @@ namespace FlipWorld
                         player->health -= 30; // rock: solid hit
                     else
                     {
-                        player->health -= 10; // ice: light hit + freeze (ghost-boss rules)
+                        player->health -= 35; // ice: hits a bit harder than rock + freeze (ghost-boss rules)
                         if (player->frozen <= 0 && g_freezeImmune <= 0) player->frozen = 1.0f;
                     }
                     if (player->health <= 0)
